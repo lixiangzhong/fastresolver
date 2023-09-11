@@ -42,6 +42,18 @@ func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (DNSR
 	if err != nil {
 		return ret, err
 	}
+	if rsp.Truncated {
+		//try again with TCP
+		udpconn, ok := conn.(*net.UDPConn)
+		if ok {
+			tcpconn, err := net.DialTimeout("tcp", udpconn.RemoteAddr().String(), 3*time.Second)
+			if err != nil {
+				return ret, err
+			}
+			return lookup(ctx, tcpconn, name, qtype)
+		}
+		return ret, TruncatedError{Qname: name, Server: conn.RemoteAddr().String()}
+	}
 	ret.Authoritative = rsp.Authoritative
 	if rsp.Rcode == dns.RcodeRefused {
 		return ret, ServerRefusedError{Qname: name, Server: conn.RemoteAddr().String()}
