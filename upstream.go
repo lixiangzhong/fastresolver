@@ -2,7 +2,9 @@ package fastresolver
 
 import (
 	"context"
+	"math/rand"
 	"net"
+	"net/netip"
 	"strconv"
 
 	"github.com/miekg/dns"
@@ -23,7 +25,23 @@ func (u Upstream) Dial() (net.Conn, error) {
 	if u.Port == 0 {
 		u.Port = 53
 	}
-	return net.Dial(u.Network, u.Addr+":"+strconv.Itoa(u.Port))
+	_, err := netip.ParseAddr(u.Addr)
+	if err == nil {
+		return net.Dial(u.Network, u.Addr+":"+strconv.Itoa(u.Port))
+	}
+	addrs, err := DefaultResovler.LookupIP(context.Background(), u.Addr)
+	if err != nil {
+		return nil, err
+	}
+	if len(addrs) == 0 {
+		return nil, &net.DNSError{
+			Err:        "no such host",
+			Name:       u.Addr,
+			IsNotFound: true,
+		}
+	}
+	idx := rand.Intn(len(addrs))
+	return net.Dial(u.Network, addrs[idx]+":"+strconv.Itoa(u.Port))
 }
 
 func (u Upstream) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {

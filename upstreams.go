@@ -8,7 +8,7 @@ import (
 
 var _ Resolver = (*Upstreams)(nil)
 
-type Upstreams []Upstream
+type Upstreams []Resolver
 
 func (u Upstreams) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))

@@ -7,8 +7,8 @@ import (
 
 func TestFallbackTrace_LookupIP(t *testing.T) {
 	ctx := context.Background()
-	name := "8d23gmsz.top"
-	f := FallbackTrace{Resolver: Upstream{Addr: "1.1.1.1"}}
+	name := "www.qq.com"
+	f := FallbackTrace{Resolver: Upstream{Addr: "127.0.0.1"}}
 	ret, err := f.LookupIP(ctx, name)
 	if err != nil {
 		t.Fatal(err)
