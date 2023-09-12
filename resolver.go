@@ -30,9 +30,10 @@ type DNSRR struct {
 	ExtraAAAA     []string
 }
 
-func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (DNSRR, error) {
-	var ret DNSRR
-	ret.ServerAddr = conn.RemoteAddr().String()
+func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (ret DNSRR, err error) {
+	defer func() {
+		ret.ServerAddr = conn.RemoteAddr().String()
+	}()
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(name), qtype)
 	c := new(dns.Client)
@@ -89,7 +90,6 @@ func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (DNSR
 			ret.ExtraAAAA = append(ret.ExtraAAAA, v.AAAA.String())
 		}
 	}
-	// fmt.Println(conn.RemoteAddr(), name, qtype, ret)
 	return ret, nil
 }
 
@@ -109,7 +109,8 @@ func trace(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
 		upstreams = slices.Clone(roots)
 	}
 	for i := 0; i < 16; i++ {
-		rsp, err := upstreams.Lookup(ctx, name, qtype)
+		resolver := NewRetryResolver(3, NewFailoverResovler(100, upstreams...))
+		rsp, err := resolver.Lookup(ctx, name, qtype)
 		if err != nil {
 			continue
 		}
