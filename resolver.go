@@ -15,7 +15,7 @@ import (
 type Resolver interface {
 	LookupIP(context.Context, string) ([]string, error)
 	LookupNS(context.Context, string) ([]string, error)
-	// Trace(context.Context, string, uint16) ([]string, error)
+	Lookup(context.Context, string, uint16) (DNSRR, error)
 }
 
 type DNSRR struct {

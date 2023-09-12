@@ -20,6 +20,12 @@ type RateLimitResolver struct {
 	resolver Resolver
 }
 
+// Lookup implements Resolver.
+func (r *RateLimitResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	r.Take()
+	return r.resolver.Lookup(ctx, name, qtype)
+}
+
 // LookupIP implements Resolver.
 func (r *RateLimitResolver) LookupIP(ctx context.Context, name string) ([]string, error) {
 	r.Take()

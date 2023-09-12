@@ -20,6 +20,19 @@ type failoverResolver struct {
 	upstreams []StatefulResolver
 }
 
+// Lookup implements Resolver.
+func (f *failoverResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	idx := f.take()
+	u := f.upstreams[idx]
+	ret, err := u.Lookup(ctx, name, qtype)
+	if err != nil {
+		u.Record(false)
+	} else {
+		u.Record(true)
+	}
+	return ret, err
+}
+
 func (s *failoverResolver) LookupIP(ctx context.Context, name string) ([]string, error) {
 	idx := s.take()
 	u := s.upstreams[idx]

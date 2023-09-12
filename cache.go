@@ -8,6 +8,8 @@ import (
 	"github.com/miekg/dns"
 )
 
+var DefalutCache = NewLRU(50000, time.Minute)
+
 type Cache interface {
 	Set(name string, qtype uint16, answer []string)
 	Get(name string, qtype uint16) ([]string, bool)
@@ -22,6 +24,27 @@ var _ Resolver = (*cacheResovler)(nil)
 type cacheResovler struct {
 	cache    Cache
 	resolver Resolver
+}
+
+// Lookup implements Resolver.
+func (c *cacheResovler) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	val, ok := c.cache.Get(name, qtype)
+	if ok {
+		return DNSRR{A: val}, nil
+	}
+	ret, err := c.resolver.Lookup(ctx, name, qtype)
+	if err != nil {
+		return ret, err
+	}
+	switch qtype {
+	case dns.TypeA:
+		c.cache.Set(name, qtype, ret.A)
+	case dns.TypeCNAME:
+		c.cache.Set(name, qtype, ret.CNAME)
+	case dns.TypeNS:
+		c.cache.Set(name, qtype, ret.NS)
+	}
+	return ret, nil
 }
 
 // LookupIP implements Resolver.
