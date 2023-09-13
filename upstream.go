@@ -55,6 +55,9 @@ func (u Upstream) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 }
 
 func (u Upstream) LookupIP(ctx context.Context, name string) ([]string, error) {
+	if addr, err := netip.ParseAddr(name); err == nil {
+		return []string{addr.String()}, nil
+	}
 	ret, err := u.Lookup(ctx, name, dns.TypeA)
 	if err != nil {
 		return nil, err

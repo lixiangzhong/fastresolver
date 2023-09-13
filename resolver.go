@@ -3,13 +3,9 @@ package fastresolver
 import (
 	"context"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/zonedb/zonedb"
-	"golang.org/x/exp/slices"
-	"golang.org/x/net/publicsuffix"
 )
 
 type Resolver interface {
@@ -23,11 +19,11 @@ type DNSRR struct {
 	NXDomain      bool
 	Authoritative bool
 	A             []string
+	AAAA          []string
 	NS            []string
 	CNAME         []string
 	AuthNS        []string
-	ExtraA        []string
-	ExtraAAAA     []string
+	//mx txt ...
 }
 
 func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (ret DNSRR, err error) {
@@ -76,65 +72,13 @@ func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (ret 
 		switch v := item.(type) {
 		case *dns.A:
 			ret.A = append(ret.A, v.A.String())
+		case *dns.AAAA:
+			ret.AAAA = append(ret.AAAA, v.AAAA.String())
 		case *dns.NS:
 			ret.NS = append(ret.NS, v.Ns)
 		case *dns.CNAME:
 			ret.CNAME = append(ret.CNAME, v.Target)
 		}
 	}
-	for _, item := range rsp.Extra {
-		switch v := item.(type) {
-		case *dns.A:
-			ret.ExtraA = append(ret.ExtraA, v.A.String())
-		case *dns.AAAA:
-			ret.ExtraAAAA = append(ret.ExtraAAAA, v.AAAA.String())
-		}
-	}
 	return ret, nil
-}
-
-func trace(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	var nxdomain DNSRR = DNSRR{NXDomain: true}
-	var upstreams Upstreams
-	z := zonedb.PublicZone(tldPlusOne(name))
-	if z == nil {
-		return nxdomain, nil
-	}
-	for _, ns := range z.NameServers {
-		upstreams = append(upstreams, Upstream{
-			Addr: ns,
-		})
-	}
-	if len(upstreams) == 0 {
-		upstreams = slices.Clone(roots)
-	}
-	for i := 0; i < 16; i++ {
-		resolver := NewRetryResolver(3, NewFailoverResovler(100, upstreams...))
-		rsp, err := resolver.Lookup(ctx, name, qtype)
-		if err != nil {
-			continue
-		}
-		if rsp.Authoritative || rsp.NXDomain {
-			return rsp, nil
-		}
-		if len(rsp.AuthNS) > 0 {
-			upstreams = upstreams[:0]
-			for _, ns := range rsp.AuthNS {
-				upstreams = append(upstreams, Upstream{
-					Addr: ns,
-				})
-			}
-			continue
-		}
-		break
-	}
-	return nxdomain, nil
-}
-
-func tldPlusOne(name string) string {
-	domain, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(name, "."))
-	if err != nil {
-		return name
-	}
-	return domain
 }

@@ -5,8 +5,13 @@ var DefaultResovler Resolver
 func init() {
 	DefaultResovler = NewFastResolver(
 		Upstream{Addr: "1.1.1.1"},
+		Upstream{Addr: "1.0.0.1"},
 		Upstream{Addr: "8.8.8.8"},
+		Upstream{Addr: "8.8.4.4"},
 		Upstream{Addr: "114.114.114.114"},
+		Upstream{Addr: "114.114.115.115"},
+		Upstream{Addr: "223.5.5.5"},
+		Upstream{Addr: "223.6.6.6"},
 	)
 }
 
