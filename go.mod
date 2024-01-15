@@ -1,4 +1,4 @@
-module fastresolver
+module github.com/lixiangzhong/fastresolver
 
 go 1.21.0
 
