@@ -68,6 +68,20 @@ func (c *cacheResovler) LookupNS(ctx context.Context, name string) ([]string, er
 	return ret, nil
 }
 
+// LookupPTR implements Resolver.
+func (c *cacheResovler) LookupPTR(ctx context.Context, name string) ([]string, error) {
+	val, ok := c.cache.Get(name, dns.TypePTR)
+	if ok {
+		return val.PTR, nil
+	}
+	ret, err := c.resolver.LookupPTR(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	c.cache.Set(name, dns.TypePTR, DNSRR{PTR: ret})
+	return ret, nil
+}
+
 type cacheKey struct {
 	name  string
 	qtype uint16

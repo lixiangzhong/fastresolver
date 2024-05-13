@@ -37,3 +37,9 @@ func (r *RateLimitResolver) LookupNS(ctx context.Context, name string) ([]string
 	r.Take()
 	return r.resolver.LookupNS(ctx, name)
 }
+
+// LookupPTR implements Resolver.
+func (r *RateLimitResolver) LookupPTR(ctx context.Context, name string) ([]string, error) {
+	r.Take()
+	return r.resolver.LookupPTR(ctx, name)
+}

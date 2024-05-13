@@ -18,6 +18,16 @@ type RetryResolver struct {
 	resolver Resolver
 }
 
+func (r *RetryResolver) LookupPTR(ctx context.Context, name string) (ret []string, err error) {
+	for i := 0; i < r.retry; i++ {
+		ret, err = r.resolver.LookupPTR(ctx, name)
+		if err == nil {
+			return ret, err
+		}
+	}
+	return
+}
+
 // Lookup implements Resolver.
 func (r *RetryResolver) Lookup(ctx context.Context, name string, qtype uint16) (ret DNSRR, err error) {
 	for i := 0; i < r.retry; i++ {

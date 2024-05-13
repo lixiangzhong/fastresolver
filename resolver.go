@@ -12,6 +12,7 @@ type Resolver interface {
 	LookupIP(context.Context, string) ([]string, error)
 	LookupNS(context.Context, string) ([]string, error)
 	Lookup(context.Context, string, uint16) (DNSRR, error)
+	LookupPTR(context.Context, string) ([]string, error)
 }
 
 type DNSRR struct {
@@ -23,6 +24,7 @@ type DNSRR struct {
 	NS            []string
 	CNAME         []string
 	AuthNS        []string
+	PTR           []string
 	//mx txt ...
 }
 
@@ -78,6 +80,8 @@ func lookup(ctx context.Context, conn net.Conn, name string, qtype uint16) (ret 
 			ret.NS = append(ret.NS, v.Ns)
 		case *dns.CNAME:
 			ret.CNAME = append(ret.CNAME, v.Target)
+		case *dns.PTR:
+			ret.PTR = append(ret.PTR, v.Ptr)
 		}
 	}
 	return ret, nil

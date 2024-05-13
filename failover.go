@@ -57,6 +57,19 @@ func (s *failoverResolver) LookupNS(ctx context.Context, name string) ([]string,
 	return ret, err
 }
 
+// LookupPTR implements Resolver.
+func (s *failoverResolver) LookupPTR(ctx context.Context, name string) ([]string, error) {
+	idx := s.take()
+	u := s.upstreams[idx]
+	ret, err := u.LookupPTR(ctx, name)
+	if err != nil {
+		u.Record(false)
+	} else {
+		u.Record(true)
+	}
+	return ret, err
+}
+
 func (s *failoverResolver) take() int {
 	n := len(s.upstreams)
 	available := make([]int, 0, n)

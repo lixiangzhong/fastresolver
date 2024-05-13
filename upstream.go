@@ -84,3 +84,17 @@ func (u Upstream) LookupNS(ctx context.Context, name string) ([]string, error) {
 	}
 	return nil, nil
 }
+
+// LookupPTR implements Resolver.
+func (u Upstream) LookupPTR(ctx context.Context, ip string) ([]string, error) {
+
+	qname, err := dns.ReverseAddr(ip)
+	if err != nil {
+		return nil, err
+	}
+	ret, err := u.Lookup(ctx, qname, dns.TypePTR)
+	if err != nil {
+		return nil, err
+	}
+	return ret.PTR, nil
+}

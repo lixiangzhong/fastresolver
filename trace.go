@@ -53,6 +53,23 @@ func (f *FallbackTrace) LookupNS(ctx context.Context, name string) ([]string, er
 	return ret, nil
 }
 
+// LookupPTR implements Resolver.
+func (f *FallbackTrace) LookupPTR(ctx context.Context, name string) ([]string, error) {
+	qname, err := dns.ReverseAddr(name)
+	if err != nil {
+		return nil, err
+	}
+	var ret []string
+	rr, err := f.Lookup(ctx, qname, dns.TypePTR)
+	if err != nil {
+		return ret, err
+	}
+	if len(rr.PTR) > 0 {
+		return rr.PTR, nil
+	}
+	return ret, nil
+}
+
 func trace(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
 	var nxdomain DNSRR = DNSRR{NXDomain: true}
 	var upstreams Upstreams

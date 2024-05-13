@@ -23,3 +23,9 @@ func (u Upstreams) LookupNS(ctx context.Context, name string) ([]string, error) 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return u[r.Intn(len(u))].LookupNS(ctx, name)
 }
+
+// LookupPTR implements Resolver.
+func (u Upstreams) LookupPTR(ctx context.Context, name string) ([]string, error) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return u[r.Intn(len(u))].LookupPTR(ctx, name)
+}
