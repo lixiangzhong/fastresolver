@@ -6,40 +6,22 @@ import (
 	"go.uber.org/ratelimit"
 )
 
-func NewRateLimitResolver(r Resolver, qps int) Resolver {
+var _ ILookup = (*RateLimitResolver)(nil)
+
+type RateLimitResolver struct {
+	ratelimit.Limiter
+	resolver ILookup
+}
+
+func NewRateLimitResolver(r ILookup, qps int) *RateLimitResolver {
 	return &RateLimitResolver{
 		Limiter:  ratelimit.New(qps),
 		resolver: r,
 	}
 }
 
-var _ Resolver = (*RateLimitResolver)(nil)
-
-type RateLimitResolver struct {
-	ratelimit.Limiter
-	resolver Resolver
-}
-
-// Lookup implements Resolver.
+// Lookup implements ILookup.
 func (r *RateLimitResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
 	r.Take()
 	return r.resolver.Lookup(ctx, name, qtype)
-}
-
-// LookupIP implements Resolver.
-func (r *RateLimitResolver) LookupIP(ctx context.Context, name string) ([]string, error) {
-	r.Take()
-	return r.resolver.LookupIP(ctx, name)
-}
-
-// LookupNS implements Resolver.
-func (r *RateLimitResolver) LookupNS(ctx context.Context, name string) ([]string, error) {
-	r.Take()
-	return r.resolver.LookupNS(ctx, name)
-}
-
-// LookupPTR implements Resolver.
-func (r *RateLimitResolver) LookupPTR(ctx context.Context, name string) ([]string, error) {
-	r.Take()
-	return r.resolver.LookupPTR(ctx, name)
 }

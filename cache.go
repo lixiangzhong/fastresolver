@@ -5,81 +5,13 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/miekg/dns"
 )
 
-var DefalutCache = NewLRU(50000, time.Minute)
+var DefalutMemCache = NewLRU(50000, time.Minute)
 
 type Cache interface {
 	Set(name string, qtype uint16, answer DNSRR)
 	Get(name string, qtype uint16) (DNSRR, bool)
-}
-
-func NewCacheResolver(cache Cache, resolver Resolver) Resolver {
-	return &cacheResovler{cache: cache, resolver: resolver}
-}
-
-var _ Resolver = (*cacheResovler)(nil)
-
-type cacheResovler struct {
-	cache    Cache
-	resolver Resolver
-}
-
-// Lookup implements Resolver.
-func (c *cacheResovler) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	val, ok := c.cache.Get(name, qtype)
-	if ok {
-		return val, nil
-	}
-	ret, err := c.resolver.Lookup(ctx, name, qtype)
-	if err != nil {
-		return ret, err
-	}
-	c.cache.Set(name, qtype, ret)
-	return ret, nil
-}
-
-// LookupIP implements Resolver.
-func (c *cacheResovler) LookupIP(ctx context.Context, name string) ([]string, error) {
-	val, ok := c.cache.Get(name, dns.TypeA)
-	if ok {
-		return val.A, nil
-	}
-	ret, err := c.resolver.LookupIP(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	c.cache.Set(name, dns.TypeA, DNSRR{A: ret})
-	return ret, nil
-}
-
-// LookupNS implements Resolver.
-func (c *cacheResovler) LookupNS(ctx context.Context, name string) ([]string, error) {
-	val, ok := c.cache.Get(name, dns.TypeNS)
-	if ok {
-		return val.NS, nil
-	}
-	ret, err := c.resolver.LookupNS(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	c.cache.Set(name, dns.TypeNS, DNSRR{NS: ret})
-	return ret, nil
-}
-
-// LookupPTR implements Resolver.
-func (c *cacheResovler) LookupPTR(ctx context.Context, name string) ([]string, error) {
-	val, ok := c.cache.Get(name, dns.TypePTR)
-	if ok {
-		return val.PTR, nil
-	}
-	ret, err := c.resolver.LookupPTR(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	c.cache.Set(name, dns.TypePTR, DNSRR{PTR: ret})
-	return ret, nil
 }
 
 type cacheKey struct {
@@ -108,4 +40,32 @@ func (m *memLRU) Get(name string, qtype uint16) (DNSRR, bool) {
 func (m *memLRU) Set(name string, qtype uint16, answer DNSRR) {
 	k := cacheKey{name: name, qtype: qtype}
 	m.cache.Add(k, answer)
+}
+
+var _ ILookup = (*CacheResolver)(nil)
+
+type CacheResolver struct {
+	cache    Cache
+	resolver ILookup
+}
+
+func NewCacheResolver(cache Cache, resolver ILookup) *CacheResolver {
+	return &CacheResolver{
+		cache:    cache,
+		resolver: resolver,
+	}
+}
+
+// Lookup implements ILookup.
+func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	val, ok := c.cache.Get(name, qtype)
+	if ok {
+		return val, nil
+	}
+	ret, err := c.resolver.Lookup(ctx, name, qtype)
+	if err != nil {
+		return ret, err
+	}
+	c.cache.Set(name, qtype, ret)
+	return ret, nil
 }

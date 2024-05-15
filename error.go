@@ -1,5 +1,7 @@
 package fastresolver
 
+import "errors"
+
 type ServerRefusedError struct {
 	Qname  string
 	Server string
@@ -17,3 +19,5 @@ type TruncatedError struct {
 func (e TruncatedError) Error() string {
 	return "server " + e.Server + " truncated query for " + e.Qname
 }
+
+var ErrCircuitBreaker = errors.New("circuit breaker")
