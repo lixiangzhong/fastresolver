@@ -22,6 +22,9 @@ func (f *FollowCnameResolver) Lookup(ctx context.Context, name string, qtype uin
 	if err != nil {
 		return ret, err
 	}
+	if qtype == dns.TypeNS {
+		return ret, nil
+	}
 	if len(ret.CNAME) > 0 {
 		var follow bool
 		switch qtype {
@@ -29,8 +32,6 @@ func (f *FollowCnameResolver) Lookup(ctx context.Context, name string, qtype uin
 			follow = len(ret.A) == 0
 		case dns.TypeAAAA:
 			follow = len(ret.AAAA) == 0
-		case dns.TypeNS:
-			follow = len(ret.NS) == 0
 		case dns.TypePTR:
 			follow = len(ret.PTR) == 0
 		}
