@@ -1,4 +1,4 @@
-module github.com/lixiangzhong/fastresolver
+module github.com/lixiangzhong/fastresolver/v2
 
 go 1.21.0
 
@@ -7,7 +7,6 @@ require (
 	github.com/miekg/dns v1.1.55
 	github.com/sourcegraph/conc v0.3.0
 	go.uber.org/ratelimit v0.3.0
-	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17
 )
 
 require (
