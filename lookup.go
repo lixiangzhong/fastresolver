@@ -95,21 +95,25 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 	}
 	dnsrr.Rtt = rtt
 	dnsrr.Authoritative = resp.Authoritative
-	if resp.Rcode == dns.RcodeRefused {
+	switch resp.Rcode {
+	case dns.RcodeRefused:
 		err = ServerRefusedError{Qname: req.Question[0].Name, Server: dnsrr.ServerAddr}
 		return
-	}
-	if resp.Rcode == dns.RcodeNameError {
+	case dns.RcodeNameError:
 		dnsrr.NXDomain = true
 		return
 	}
 	qtype := req.Question[0].Qtype
+	qname := req.Question[0].Name
 	for _, v := range resp.Ns {
 		switch rr := v.(type) {
 		case *dns.NS:
 			dnsrr.AuthNS = append(dnsrr.AuthNS, rr.Ns)
 		case *dns.SOA:
-			dnsrr.NXDomain = qtype != dns.TypeSOA
+			if qtype == dns.TypeSOA {
+				continue
+			}
+			dnsrr.NXDomain = strings.HasSuffix(qname, v.Header().Name) && qname != v.Header().Name
 			return
 		}
 	}
