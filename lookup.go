@@ -23,10 +23,15 @@ type DNSRR struct {
 	AAAA          []string
 	NS            []string
 	CNAME         []string
-	AuthNS        []string
+	AuthNS        []AuthNS
 	PTR           []string
 	Mx            []string
 	Txt           []string
+}
+
+type AuthNS struct {
+	Name  string
+	Value string
 }
 
 var _ ILookup = (*Resolver)(nil)
@@ -108,7 +113,10 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 	for _, v := range resp.Ns {
 		switch rr := v.(type) {
 		case *dns.NS:
-			dnsrr.AuthNS = append(dnsrr.AuthNS, rr.Ns)
+			dnsrr.AuthNS = append(dnsrr.AuthNS, AuthNS{
+				Name:  v.Header().Name,
+				Value: rr.Ns,
+			})
 		case *dns.SOA:
 			if qtype == dns.TypeSOA {
 				continue

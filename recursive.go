@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/zonedb/zonedb"
 	"golang.org/x/net/publicsuffix"
 )
@@ -64,18 +65,28 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (dnsrr DNS
 		if err != nil {
 			return DNSRR{}, err
 		}
+
 		if resp.Authoritative || resp.NXDomain {
 			cacheForRecursive.Set(qname, qtype, resp)
 			return resp, nil
 		}
 		if len(resp.AuthNS) > 0 {
+			qnameNS := make([]string, 0)
 			resolvers = resolvers[:0]
 			for _, ns := range resp.AuthNS {
-				resolver, err := NewResolver(ns)
+				if qtype == dns.TypeNS && dns.Fqdn(ns.Name) == dns.Fqdn(qname) {
+					qnameNS = append(qnameNS, ns.Value)
+					continue
+				}
+				resolver, err := NewResolver(ns.Value)
 				if err != nil {
 					continue
 				}
 				resolvers = append(resolvers, resolver)
+			}
+			if len(qnameNS) > 0 {
+				resp.NS = qnameNS
+				return resp, nil
 			}
 			continue
 		}
@@ -90,4 +101,32 @@ func tldPlusOne(name string) string {
 		return name
 	}
 	return domain
+}
+
+type RecursiveResolver struct{}
+
+func (r *RecursiveResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	return RecursiveLookup(ctx, name, qtype)
+}
+
+type FailbackResolver struct {
+	primary ILookup
+
+	secondary ILookup
+	// resolvers []ILookup
+}
+
+func NewFailbackResolver(primary ILookup, secondary ILookup) ILookup {
+	return &FailbackResolver{
+		primary:   primary,
+		secondary: secondary,
+	}
+}
+
+func (r *FailbackResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	resp, err := r.primary.Lookup(ctx, name, qtype)
+	if err != nil {
+		resp, err = r.secondary.Lookup(ctx, name, qtype)
+	}
+	return resp, err
 }
