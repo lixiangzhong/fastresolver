@@ -109,21 +109,19 @@ func (r *RecursiveResolver) Lookup(ctx context.Context, name string, qtype uint1
 	return RecursiveLookup(ctx, name, qtype)
 }
 
-type FailbackResolver struct {
-	primary ILookup
-
+type FallbackResolver struct {
+	primary   ILookup
 	secondary ILookup
-	// resolvers []ILookup
 }
 
-func NewFailbackResolver(primary ILookup, secondary ILookup) ILookup {
-	return &FailbackResolver{
+func NewFallbackResolver(primary ILookup, secondary ILookup) ILookup {
+	return &FallbackResolver{
 		primary:   primary,
 		secondary: secondary,
 	}
 }
 
-func (r *FailbackResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (r *FallbackResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
 	resp, err := r.primary.Lookup(ctx, name, qtype)
 	if err != nil {
 		resp, err = r.secondary.Lookup(ctx, name, qtype)
