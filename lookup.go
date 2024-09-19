@@ -2,6 +2,7 @@ package fastresolver
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -25,13 +26,18 @@ type DNSRR struct {
 	CNAME         []string
 	AuthNS        []AuthNS
 	PTR           []string
-	Mx            []string
-	Txt           []string
+	MX            []MX
+	TXT           []string
+	SRV           []string
 }
 
 type AuthNS struct {
 	Name  string
 	Value string
+}
+type MX struct {
+	Preference uint16
+	Value      string
 }
 
 var _ ILookup = (*Resolver)(nil)
@@ -137,6 +143,17 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 			dnsrr.CNAME = append(dnsrr.CNAME, rr.Target)
 		case *dns.PTR:
 			dnsrr.PTR = append(dnsrr.PTR, rr.Ptr)
+		case *dns.TXT:
+			for _, txt := range rr.Txt {
+				dnsrr.TXT = append(dnsrr.TXT, txt)
+			}
+		case *dns.MX:
+			dnsrr.MX = append(dnsrr.MX, MX{
+				Preference: rr.Preference,
+				Value:      rr.Mx,
+			})
+		case *dns.SRV:
+			dnsrr.SRV = append(dnsrr.SRV, fmt.Sprintf("%v %v %v %v", rr.Priority, rr.Weight, rr.Port, rr.Target))
 		}
 	}
 	return
