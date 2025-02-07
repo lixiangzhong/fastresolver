@@ -8,7 +8,7 @@ import (
 )
 
 func TestRecursiveLookup(t *testing.T) {
-	rr, err := RecursiveLookup(context.Background(), "baidu.com", dns.TypeNS)
+	rr, err := RecursiveLookup(context.Background(), "evas.ai", dns.TypeNS)
 	if err != nil {
 		t.Fatal(err)
 	}
