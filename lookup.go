@@ -127,8 +127,7 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 			if qtype == dns.TypeSOA {
 				continue
 			}
-			dnsrr.NXDomain = strings.HasSuffix(qname, v.Header().Name) && qname != v.Header().Name
-			return
+			dnsrr.NXDomain = strings.HasSuffix(qname, v.Header().Name) && qname != v.Header().Name && len(resp.Answer) == 0
 		}
 	}
 	for _, v := range resp.Answer {

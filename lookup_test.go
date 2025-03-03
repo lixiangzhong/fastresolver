@@ -12,7 +12,7 @@ func TestResolver_Lookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rr, err := r.Lookup(context.Background(), "google.com", dns.TypeA)
+	rr, err := r.Lookup(context.Background(), "haotv.net", dns.TypeNS)
 	if err != nil {
 		t.Fatal(err)
 	}
