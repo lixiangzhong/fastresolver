@@ -105,17 +105,25 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 		dnsrr.ServerAddr = tcpconn.RemoteAddr().String()
 	}
 	dnsrr.Rtt = rtt
+	err = toDNSRR(resp, &dnsrr)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
+	qtype := resp.Question[0].Qtype
+	qname := resp.Question[0].Name
 	dnsrr.Authoritative = resp.Authoritative
 	switch resp.Rcode {
 	case dns.RcodeRefused:
-		err = ServerRefusedError{Qname: req.Question[0].Name, Server: dnsrr.ServerAddr}
+		err = ServerRefusedError{Qname: qname, Server: dnsrr.ServerAddr}
 		return
 	case dns.RcodeNameError:
 		dnsrr.NXDomain = true
 		return
 	}
-	qtype := req.Question[0].Qtype
-	qname := req.Question[0].Name
 	for _, v := range resp.Ns {
 		switch rr := v.(type) {
 		case *dns.NS:
