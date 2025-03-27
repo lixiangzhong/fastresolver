@@ -63,9 +63,8 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (dnsrr DNS
 		resolver := NewRetryResolver(len(resolvers), NewLoadBalanceResolver(NewRandomBalancer(), resolvers...))
 		resp, err := resolver.Lookup(ctx, qname, qtype)
 		if err != nil {
-			return DNSRR{}, err
+			return resp, err
 		}
-
 		if resp.Authoritative || resp.NXDomain {
 			cacheForRecursive.Set(qname, qtype, resp)
 			return resp, nil
@@ -90,9 +89,9 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (dnsrr DNS
 			}
 			continue
 		}
-		break
+		return resp, nil
 	}
-	return DNSRR{NXDomain: true}, err
+	return DNSRR{}, err
 }
 
 func tldPlusOne(name string) string {
