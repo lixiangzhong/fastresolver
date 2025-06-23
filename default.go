@@ -39,13 +39,16 @@ const famousDNS = `1.0.0.1
 9.9.9.9
 91.239.100.100`
 
+const famousDNSChina = `
+114.114.114.114
+114.114.115.115
+223.5.5.5
+223.6.6.6
+119.29.29.29
+`
+
 func Default() ILookup {
-	famous := []string{
-		"114.114.114.114", "114.114.115.115",
-		"223.5.5.5", "223.6.6.6",
-		"119.29.29.29",
-	}
-	famous = append(famous, strings.Fields(famousDNS)...)
+	famous := append(strings.Fields(famousDNSChina), strings.Fields(famousDNS)...)
 	var resolvers []ILookup
 	for _, addr := range famous {
 		var r ILookup

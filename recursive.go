@@ -50,11 +50,21 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (dnsrr DNS
 	}
 	resolvers := make([]ILookup, 0)
 	for _, ns := range z.NameServers {
-		resolver, err := NewResolver(ns)
-		if err != nil {
-			continue
+		if rr, err := internalResolver.Lookup(ctx, ns, dns.TypeA); err == nil && len(rr.A) > 0 {
+			for _, ip := range rr.A {
+				resolver, err := NewResolver(ip)
+				if err != nil {
+					continue
+				}
+				resolvers = append(resolvers, resolver)
+			}
+		} else {
+			resolver, err := NewResolver(ns)
+			if err != nil {
+				continue
+			}
+			resolvers = append(resolvers, resolver)
 		}
-		resolvers = append(resolvers, resolver)
 	}
 	if len(resolvers) == 0 {
 		resolvers = slices.Clone(rootResolvers)
