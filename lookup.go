@@ -16,6 +16,7 @@ type ILookup interface {
 
 type DNSRR struct {
 	ServerAddr    string
+	Rcode         int
 	NXDomain      bool
 	Authoritative bool
 	Rtt           time.Duration
@@ -116,6 +117,7 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 	qtype := resp.Question[0].Qtype
 	qname := resp.Question[0].Name
 	dnsrr.Authoritative = resp.Authoritative
+	dnsrr.Rcode = resp.Rcode
 	switch resp.Rcode {
 	case dns.RcodeRefused:
 		err = ServerRefusedError{Qname: qname, Server: dnsrr.ServerAddr}
