@@ -43,7 +43,13 @@ type MX struct {
 
 var _ ILookup = (*Resolver)(nil)
 
+// NewResolver creates a base resolver with a default 3-second timeout.
 func NewResolver(server string) (*Resolver, error) {
+	return NewResolverWithTimeout(server, 3*time.Second)
+}
+
+// NewResolverWithTimeout creates a base resolver with a custom socket timeout.
+func NewResolverWithTimeout(server string, timeout time.Duration) (*Resolver, error) {
 	host, port, err := net.SplitHostPort(server)
 	if err != nil {
 		if !strings.Contains(err.Error(), "missing port in address") {
@@ -56,11 +62,11 @@ func NewResolver(server string) (*Resolver, error) {
 		server: net.JoinHostPort(host, port),
 		udp: &dns.Client{
 			Net:     "udp",
-			Timeout: 3 * time.Second,
+			Timeout: timeout,
 		},
 		tcp: &dns.Client{
 			Net:     "tcp",
-			Timeout: 3 * time.Second,
+			Timeout: timeout,
 		},
 	}, nil
 }
