@@ -60,12 +60,17 @@ func Default() ILookup {
 		r = NewCircuitBreakerResolver(r, 100)
 		resolvers = append(resolvers, r)
 	}
-	var resolver ILookup
-	resolver = NewLoadBalanceResolver(NewRandomBalancer(), resolvers...)
-	resolver = NewRetryResolver(3, resolver)
-	resolver = NewCacheResolver(DefalutMemCache, resolver)
-	resolver = NewFollowCnameResolver(resolver)
-	return resolver
+	base := NewLoadBalanceResolver(NewRandomBalancer(), resolvers...)
+
+	// 使用洋葱模型（中间件装饰器链）进行统一的声明式组装。
+	// 执行流程（自外向内）：
+	// 追踪 CNAME 记录 -> LRU 缓存拦截 -> 失败重试控制 -> 负载均衡基础解析器
+	return NewCustomResolverFromBase(
+		base,
+		WithFollowCname(),
+		WithCacheResolver(DefalutMemCache),
+		WithRetry(3),
+	)
 }
 
 func cacheNetLookupIP(qname string) (DNSRR, error) {
