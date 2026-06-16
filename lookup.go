@@ -135,10 +135,12 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 	}
 
 	var minTTL uint32 = 0
+	var minTTLInitialized bool
 
 	for _, v := range resp.Ns {
-		if minTTL == 0 || v.Header().Ttl < minTTL {
+		if !minTTLInitialized || v.Header().Ttl < minTTL {
 			minTTL = v.Header().Ttl
+			minTTLInitialized = true
 		}
 		switch rr := v.(type) {
 		case *dns.NS:
@@ -154,8 +156,9 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 		}
 	}
 	for _, v := range resp.Answer {
-		if minTTL == 0 || v.Header().Ttl < minTTL {
+		if !minTTLInitialized || v.Header().Ttl < minTTL {
 			minTTL = v.Header().Ttl
+			minTTLInitialized = true
 		}
 		switch rr := v.(type) {
 		case *dns.A:
@@ -182,7 +185,7 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 		}
 	}
 
-	if minTTL > 0 {
+	if minTTLInitialized {
 		dnsrr.TTL = time.Duration(minTTL) * time.Second
 	}
 

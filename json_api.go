@@ -77,10 +77,12 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 		return ret, fmt.Errorf("error: %s", r.Error)
 	}
 	var minTTL uint32 = 0
+	var minTTLInitialized bool
 
 	for _, a := range r.Answer {
-		if minTTL == 0 || a.TTL < minTTL {
+		if !minTTLInitialized || a.TTL < minTTL {
 			minTTL = a.TTL
+			minTTLInitialized = true
 		}
 		switch a.Type {
 		case dns.TypeA:
@@ -103,8 +105,9 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 		}
 	}
 	for _, v := range r.Authority {
-		if minTTL == 0 || v.TTL < minTTL {
+		if !minTTLInitialized || v.TTL < minTTL {
 			minTTL = v.TTL
+			minTTLInitialized = true
 		}
 		if strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
 			v.Type == dns.TypeSOA &&
@@ -113,7 +116,7 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 		}
 	}
 
-	if minTTL > 0 {
+	if minTTLInitialized {
 		ret.TTL = time.Duration(minTTL) * time.Second
 	}
 

@@ -98,3 +98,39 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		t.Fatalf("expected state to remain Closed after 1 post-recovery failure, got %v", cb.getState())
 	}
 }
+
+func TestCircuitBreaker_ConsecutiveFailures(t *testing.T) {
+	mock := &mockFailingResolver{}
+	// 失败阈值：3
+	cb := NewCircuitBreakerResolver(mock, 3)
+	ctx := context.Background()
+
+	// 1. 制造 2 次失败
+	mock.shouldFail = true
+	_, _ = cb.Lookup(ctx, "test", dns.TypeA)
+	_, _ = cb.Lookup(ctx, "test", dns.TypeA)
+	if cb.getState() != StateClosed {
+		t.Fatalf("expected state to be Closed after 2 failures, got %v", cb.getState())
+	}
+
+	// 2. 插入一次成功，应当重置失败计数器
+	mock.shouldFail = false
+	_, err := cb.Lookup(ctx, "test", dns.TypeA)
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+
+	// 3. 再发生第 3 次（实际由于被清零而当作第 1 次）失败，状态机应该依然是 Closed
+	mock.shouldFail = true
+	_, _ = cb.Lookup(ctx, "test", dns.TypeA)
+	if cb.getState() != StateClosed {
+		t.Fatalf("expected state to remain Closed since failure count was reset, got %v", cb.getState())
+	}
+
+	// 4. 连续追加 2 次失败（累计连续 3 次），熔断器应该进入 Open 状态
+	_, _ = cb.Lookup(ctx, "test", dns.TypeA)
+	_, _ = cb.Lookup(ctx, "test", dns.TypeA)
+	if cb.getState() != StateOpen {
+		t.Fatalf("expected state to trigger Open after 3 consecutive failures, got %v", cb.getState())
+	}
+}

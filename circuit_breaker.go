@@ -163,6 +163,9 @@ func (c *CircuitBreakerResolver) Lookup(ctx context.Context, name string, qtype 
 		if state == StateHalfOpen {
 			// 半开探测状态下请求成功，表示底层服务已经自愈恢复，状态变更为 Closed 并重置计数器
 			c.changeState(StateHalfOpen, StateClosed)
+		} else if state == StateClosed {
+			// 正常成功调用时，重置连续失败计数器为 0，使 failure 计数代表连续失败
+			c.resolver.failure.Store(0)
 		}
 	}
 
