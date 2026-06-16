@@ -1,3 +1,9 @@
 example/host.txt
 example/main.go
 example/publidns.txt
+example/100w.txt
+example/domain.csv
+example/gfw.txt
+example/nxdomain.txt
+example/result.csv
+example/testdns/testdns.go

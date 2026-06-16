@@ -19,12 +19,22 @@ type JSONAPI struct {
 	http    *http.Client
 }
 
+// NewJSONAPI creates a JSON API resolver reusing the default shared http.Transport.
 func NewJSONAPI(url string, timeout time.Duration) *JSONAPI {
 	return &JSONAPI{
 		baseURL: url,
 		http: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: defaultTransport,
 		},
+	}
+}
+
+// NewJSONAPIWithClient creates a JSON API resolver with a custom http.Client.
+func NewJSONAPIWithClient(url string, client *http.Client) *JSONAPI {
+	return &JSONAPI{
+		baseURL: url,
+		http:    client,
 	}
 }
 

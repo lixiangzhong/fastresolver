@@ -19,10 +19,22 @@ type DoH struct {
 	Client *http.Client
 }
 
+// NewDoH creates a DoH resolver reusing the default shared http.Transport.
 func NewDoH(url string, timeout time.Duration) *DoH {
 	return &DoH{
+		URL: url,
+		Client: &http.Client{
+			Timeout:   timeout,
+			Transport: defaultTransport,
+		},
+	}
+}
+
+// NewDoHWithClient creates a DoH resolver with a custom http.Client.
+func NewDoHWithClient(url string, client *http.Client) *DoH {
+	return &DoH{
 		URL:    url,
-		Client: &http.Client{Timeout: timeout},
+		Client: client,
 	}
 }
 
