@@ -10,24 +10,47 @@ import (
 )
 
 func TestJSONAPI_Lookup(t *testing.T) {
+	server := startMockJSONAPIServer(func(name string, qtype uint16) JSONAPIResponse {
+		if name == "cl.app" && qtype == dns.TypeNS {
+			return JSONAPIResponse{
+				Status: dns.RcodeSuccess,
+				Answer: []JSONAPIAnswer{
+					{
+						Name: "cl.app.",
+						Type: dns.TypeNS,
+						TTL:  300,
+						Data: "ns1.mock.dns.",
+					},
+				},
+			}
+		}
+		return JSONAPIResponse{Status: dns.RcodeNameError}
+	})
+	defer server.Close()
 
-	// r := NewJSONAPI("https://doh.pub/resolve", time.Second*3)
-	r := NewJSONAPI("https://dns.alidns.com/resolve", time.Second*3)
-
+	r := NewJSONAPI(server.URL, time.Second*3)
 	rr, err := r.Lookup(context.Background(), "cl.app", dns.TypeNS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%#+v", rr)
+
+	if len(rr.NS) == 0 || rr.NS[0] != "ns1.mock.dns." {
+		t.Fatalf("expected NS 'ns1.mock.dns.', got %v", rr.NS)
+	}
 }
 
 func TestJSONAPI_WithCustomClient(t *testing.T) {
+	server := startMockJSONAPIServer(func(name string, qtype uint16) JSONAPIResponse {
+		return JSONAPIResponse{Status: dns.RcodeSuccess}
+	})
+	defer server.Close()
+
 	tr := &trackingRoundTripper{}
 	client := &http.Client{
 		Transport: tr,
 		Timeout:   time.Second * 5,
 	}
-	r := NewJSONAPIWithClient("https://dns.alidns.com/resolve", client)
+	r := NewJSONAPIWithClient(server.URL, client)
 	_, _ = r.Lookup(context.Background(), "cl.app", dns.TypeNS)
 
 	if !tr.called {

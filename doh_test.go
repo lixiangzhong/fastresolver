@@ -10,12 +10,30 @@ import (
 )
 
 func TestDoH_Lookup(t *testing.T) {
-	r := NewDoH("https://dns.alidns.com/dns-query", time.Second*3)
+	server := startMockDoHServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Authoritative = true
+		if r.Question[0].Name == "cl.app." && r.Question[0].Qtype == dns.TypeNS {
+			ns := &dns.NS{
+				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 300},
+				Ns:  "ns1.mock.dns.",
+			}
+			m.Answer = append(m.Answer, ns)
+		}
+		_ = w.WriteMsg(m)
+	})
+	defer server.Close()
+
+	r := NewDoH(server.URL, time.Second*3)
 	rr, err := r.Lookup(context.Background(), "cl.app", dns.TypeNS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%#+v", rr)
+
+	if len(rr.NS) == 0 || rr.NS[0] != "ns1.mock.dns." {
+		t.Fatalf("expected NS 'ns1.mock.dns.', got %v", rr.NS)
+	}
 }
 
 type trackingRoundTripper struct {
@@ -28,12 +46,19 @@ func (tr *trackingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 }
 
 func TestDoH_WithCustomClient(t *testing.T) {
+	server := startMockDoHServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		_ = w.WriteMsg(m)
+	})
+	defer server.Close()
+
 	tr := &trackingRoundTripper{}
 	client := &http.Client{
 		Transport: tr,
 		Timeout:   time.Second * 5,
 	}
-	r := NewDoHWithClient("https://dns.alidns.com/dns-query", client)
+	r := NewDoHWithClient(server.URL, client)
 	_, _ = r.Lookup(context.Background(), "cl.app", dns.TypeNS)
 
 	if !tr.called {

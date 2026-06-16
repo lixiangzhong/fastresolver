@@ -3,6 +3,7 @@ package fastresolver
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -10,7 +11,25 @@ import (
 )
 
 func TestTimeoutResolver_Lookup_Normal(t *testing.T) {
-	base, err := NewResolver("8.8.8.8")
+	server, err := startMockUDPServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Authoritative = true
+		if r.Question[0].Name == "google.com." && r.Question[0].Qtype == dns.TypeA {
+			a := &dns.A{
+				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+				A:   net.ParseIP("1.2.3.4"),
+			}
+			m.Answer = append(m.Answer, a)
+		}
+		_ = w.WriteMsg(m)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown()
+
+	base, err := NewResolver(server.PacketConn.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,11 +42,20 @@ func TestTimeoutResolver_Lookup_Normal(t *testing.T) {
 }
 
 func TestTimeoutResolver_Lookup_Timeout(t *testing.T) {
-	base, err := NewResolver("8.8.8.8")
+	server, err := startMockUDPServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		_ = w.WriteMsg(m)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Use an extremely small timeout to guarantee a timeout error
+	defer server.Shutdown()
+
+	base, err := NewResolver(server.PacketConn.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := NewTimeoutResolver(base, 1*time.Microsecond)
 
 	_, err = r.Lookup(context.Background(), "google.com", dns.TypeA)
@@ -40,8 +68,18 @@ func TestTimeoutResolver_Lookup_Timeout(t *testing.T) {
 }
 
 func TestResolver_WithCustomTimeout(t *testing.T) {
-	// Set an extremely short custom socket timeout on the base resolver
-	r, err := NewResolverWithTimeout("8.8.8.8", 1*time.Microsecond)
+	server, err := startMockUDPServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		time.Sleep(50 * time.Millisecond)
+		m := new(dns.Msg)
+		m.SetReply(r)
+		_ = w.WriteMsg(m)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown()
+
+	r, err := NewResolverWithTimeout(server.PacketConn.LocalAddr().String(), 5*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
