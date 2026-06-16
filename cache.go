@@ -2,9 +2,11 @@ package fastresolver
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/sync/singleflight"
 )
 
 var DefalutMemCache = NewLRU(50000, time.Minute)
@@ -47,6 +49,7 @@ var _ ILookup = (*CacheResolver)(nil)
 type CacheResolver struct {
 	cache    Cache
 	resolver ILookup
+	sfGroup  singleflight.Group
 }
 
 func NewCacheResolver(cache Cache, resolver ILookup) *CacheResolver {
@@ -62,10 +65,23 @@ func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (
 	if ok {
 		return val, nil
 	}
-	ret, err := c.resolver.Lookup(ctx, name, qtype)
+
+	key := fmt.Sprintf("%s:%d", name, qtype)
+	res, err, _ := c.sfGroup.Do(key, func() (interface{}, error) {
+		// Double check to see if another concurrent request already populated the cache.
+		if val, ok := c.cache.Get(name, qtype); ok {
+			return val, nil
+		}
+		ret, err := c.resolver.Lookup(ctx, name, qtype)
+		if err != nil {
+			return nil, err
+		}
+		c.cache.Set(name, qtype, ret)
+		return ret, nil
+	})
+
 	if err != nil {
-		return ret, err
+		return DNSRR{}, err
 	}
-	c.cache.Set(name, qtype, ret)
-	return ret, nil
+	return res.(DNSRR), nil
 }
