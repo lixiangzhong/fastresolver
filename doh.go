@@ -15,14 +15,20 @@ import (
 var _ ILookup = (*DoH)(nil)
 
 type DoH struct {
-	URL    string
-	Client *http.Client
+	URL       string
+	parsedURL *url.URL
+	Client    *http.Client
 }
 
 // NewDoH creates a DoH resolver reusing the default shared http.Transport.
-func NewDoH(url string, timeout time.Duration) *DoH {
+func NewDoH(urlStr string, timeout time.Duration) *DoH {
+	u, _ := url.Parse(urlStr)
+	if u != nil && u.Scheme == "" {
+		u.Scheme = "https"
+	}
 	return &DoH{
-		URL: url,
+		URL:       urlStr,
+		parsedURL: u,
 		Client: &http.Client{
 			Timeout:   timeout,
 			Transport: defaultTransport,
@@ -31,10 +37,15 @@ func NewDoH(url string, timeout time.Duration) *DoH {
 }
 
 // NewDoHWithClient creates a DoH resolver with a custom http.Client.
-func NewDoHWithClient(url string, client *http.Client) *DoH {
+func NewDoHWithClient(urlStr string, client *http.Client) *DoH {
+	u, _ := url.Parse(urlStr)
+	if u != nil && u.Scheme == "" {
+		u.Scheme = "https"
+	}
 	return &DoH{
-		URL:    url,
-		Client: client,
+		URL:       urlStr,
+		parsedURL: u,
+		Client:    client,
 	}
 }
 
@@ -53,12 +64,20 @@ func (d *DoH) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, err
 	query := url.Values{
 		"dns": []string{base64.RawURLEncoding.EncodeToString(buf)},
 	}
-	u, err := url.Parse(d.URL)
-	if err != nil {
-		return ret, err
-	}
-	if u.Scheme == "" {
-		u.Scheme = "https"
+	var u *url.URL
+	if d.parsedURL != nil {
+		// 复制一份 url.URL 避免并发场景下竞争修改同一个 u.RawQuery
+		temp := *d.parsedURL
+		u = &temp
+	} else {
+		var err error
+		u, err = url.Parse(d.URL)
+		if err != nil {
+			return ret, err
+		}
+		if u.Scheme == "" {
+			u.Scheme = "https"
+		}
 	}
 	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

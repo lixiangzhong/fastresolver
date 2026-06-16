@@ -100,8 +100,8 @@ func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (
 	}
 
 	key := fmt.Sprintf("%s:%d", name, qtype)
-	res, err, _ := c.sfGroup.Do(key, func() (interface{}, error) {
-		// Double check to see if another concurrent request already populated the cache.
+	ch := c.sfGroup.DoChan(key, func() (interface{}, error) {
+		// 双重检查，以防在等待 singleflight 时另一个并发请求已经写入了缓存。
 		if val, ok := c.cache.Get(name, qtype); ok {
 			return val, nil
 		}
@@ -113,8 +113,14 @@ func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (
 		return ret, nil
 	})
 
-	if err != nil {
-		return DNSRR{}, err
+	select {
+	case <-ctx.Done():
+		// 快速响应客户端 Context 超时或取消，避免协程因等待慢上游而积压堆积。
+		return DNSRR{}, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return DNSRR{}, res.Err
+		}
+		return res.Val.(DNSRR), nil
 	}
-	return res.(DNSRR), nil
 }
