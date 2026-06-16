@@ -47,8 +47,10 @@ const famousDNSChina = `
 119.29.29.29
 `
 
+var defaultFamous = append(strings.Fields(famousDNSChina), strings.Fields(famousDNS)...)
+
 func Default() ILookup {
-	famous := append(strings.Fields(famousDNSChina), strings.Fields(famousDNS)...)
+	famous := defaultFamous
 	var resolvers []ILookup
 	for _, addr := range famous {
 		var r ILookup
