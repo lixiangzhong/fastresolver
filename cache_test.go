@@ -63,3 +63,44 @@ func TestCacheResolver_Singleflight(t *testing.T) {
 		t.Fatalf("expected call count to remain 1 after cache hit, got %d", gotCalls)
 	}
 }
+
+type mockTTLResolver struct {
+	calls int64
+	ttl   time.Duration
+}
+
+func (m *mockTTLResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+	atomic.AddInt64(&m.calls, 1)
+	return DNSRR{
+		A:   []string{"1.2.3.4"},
+		TTL: m.ttl,
+	}, nil
+}
+
+func TestCacheResolver_DynamicTTL(t *testing.T) {
+	mock := &mockTTLResolver{ttl: 1 * time.Second} // Raw TTL of 1 second
+	cache := NewLRU(10, 5*time.Second)
+	resolver := NewCacheResolver(cache, mock)
+
+	ctx := context.Background()
+
+	// First query: populates the cache
+	_, err := resolver.Lookup(ctx, "dynamic.test", dns.TypeA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for 1.1 seconds. If 1s TTL was respected, cache would expire.
+	// But because of the "minimum 1-minute TTL" enforcement, it should hit the cache.
+	time.Sleep(1100 * time.Millisecond)
+
+	_, err = resolver.Lookup(ctx, "dynamic.test", dns.TypeA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotCalls := atomic.LoadInt64(&mock.calls)
+	if gotCalls != 1 {
+		t.Fatalf("expected exactly 1 call due to minimum 1-minute TTL enforcement, got %d", gotCalls)
+	}
+}

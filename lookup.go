@@ -21,6 +21,7 @@ type DNSRR struct {
 	Authoritative bool
 	Rtt           time.Duration
 	Network       string
+	TTL           time.Duration
 	A             []string
 	AAAA          []string
 	NS            []string
@@ -132,7 +133,13 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 		dnsrr.NXDomain = true
 		return
 	}
+
+	var minTTL uint32 = 0
+
 	for _, v := range resp.Ns {
+		if minTTL == 0 || v.Header().Ttl < minTTL {
+			minTTL = v.Header().Ttl
+		}
 		switch rr := v.(type) {
 		case *dns.NS:
 			dnsrr.AuthNS = append(dnsrr.AuthNS, AuthNS{
@@ -147,6 +154,9 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 		}
 	}
 	for _, v := range resp.Answer {
+		if minTTL == 0 || v.Header().Ttl < minTTL {
+			minTTL = v.Header().Ttl
+		}
 		switch rr := v.(type) {
 		case *dns.A:
 			dnsrr.A = append(dnsrr.A, rr.A.String())
@@ -171,5 +181,10 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 			dnsrr.SRV = append(dnsrr.SRV, fmt.Sprintf("%v %v %v %v", rr.Priority, rr.Weight, rr.Port, rr.Target))
 		}
 	}
+
+	if minTTL > 0 {
+		dnsrr.TTL = time.Duration(minTTL) * time.Second
+	}
+
 	return
 }
