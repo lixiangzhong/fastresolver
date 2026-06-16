@@ -21,3 +21,6 @@ func (e TruncatedError) Error() string {
 }
 
 var ErrCircuitBreaker = errors.New("circuit breaker")
+
+// ErrCnameDepthExceeded indicates that CNAME following exceeded the safe recursion limit.
+var ErrCnameDepthExceeded = errors.New("cname depth exceeded")
