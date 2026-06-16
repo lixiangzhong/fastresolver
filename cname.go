@@ -54,3 +54,8 @@ func (f *FollowCnameResolver) lookup(ctx context.Context, name string, qtype uin
 	}
 	return ret, err
 }
+
+// Unwrap returns the underlying resolver.
+func (f *FollowCnameResolver) Unwrap() ILookup {
+	return f.resolver
+}

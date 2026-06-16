@@ -95,7 +95,7 @@ func (d *DoH) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, err
 	if resp.StatusCode != http.StatusOK {
 		return ret, fmt.Errorf("status code: %d", resp.StatusCode)
 	}
-	b, err := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
 		return ret, err
 	}

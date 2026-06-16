@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,7 +58,7 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 	}
 	defer resp.Body.Close()
 
-	b, err := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
 	if err != nil {
 		return ret, err
 	}
@@ -94,9 +95,7 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 		case dns.TypeCNAME:
 			ret.CNAME = append(ret.CNAME, a.Data)
 		case dns.TypeMX:
-			ret.MX = append(ret.MX, MX{
-				Value: a.Data,
-			})
+			ret.MX = append(ret.MX, parseMX(a.Data))
 		case dns.TypeTXT:
 			ret.TXT = append(ret.TXT, a.Data)
 		case dns.TypeSRV:
@@ -165,4 +164,21 @@ type JSONAPIAnswer struct {
 	Type uint16 `json:"type"`
 	TTL  uint32 `json:"ttl"`
 	Data string `json:"data"`
+}
+
+func parseMX(data string) MX {
+	fields := strings.Fields(data)
+	if len(fields) >= 2 {
+		var pref uint64
+		if p, err := strconv.ParseUint(fields[0], 10, 16); err == nil {
+			pref = p
+		}
+		return MX{
+			Preference: uint16(pref),
+			Value:      strings.Join(fields[1:], " "),
+		}
+	}
+	return MX{
+		Value: data,
+	}
 }

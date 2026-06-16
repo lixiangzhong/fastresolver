@@ -124,3 +124,8 @@ func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (
 		return res.Val.(DNSRR), nil
 	}
 }
+
+// Unwrap returns the underlying resolver.
+func (c *CacheResolver) Unwrap() ILookup {
+	return c.resolver
+}

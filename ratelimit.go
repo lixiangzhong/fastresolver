@@ -25,3 +25,8 @@ func (r *RateLimitResolver) Lookup(ctx context.Context, name string, qtype uint1
 	r.Take()
 	return r.resolver.Lookup(ctx, name, qtype)
 }
+
+// Unwrap returns the underlying resolver.
+func (r *RateLimitResolver) Unwrap() ILookup {
+	return r.resolver
+}

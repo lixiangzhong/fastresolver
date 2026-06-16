@@ -28,3 +28,8 @@ func (t *TimeoutResolver) Lookup(ctx context.Context, name string, qtype uint16)
 	defer cancel()
 	return t.resolver.Lookup(ctx, name, qtype)
 }
+
+// Unwrap returns the underlying resolver.
+func (t *TimeoutResolver) Unwrap() ILookup {
+	return t.resolver
+}

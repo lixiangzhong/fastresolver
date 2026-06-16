@@ -101,7 +101,7 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (dnsrr DNS
 		}
 		return resp, nil
 	}
-	return DNSRR{}, err
+	return DNSRR{}, ErrMaxRecursionDepth
 }
 
 func tldPlusOne(name string) string {

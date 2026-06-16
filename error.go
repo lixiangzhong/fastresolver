@@ -27,3 +27,6 @@ var ErrNoResolver = errors.New("no resolver")
 
 // ErrCnameDepthExceeded indicates that CNAME following exceeded the safe recursion limit.
 var ErrCnameDepthExceeded = errors.New("cname depth exceeded")
+
+// ErrMaxRecursionDepth indicates that recursive lookup exceeded the maximum depth.
+var ErrMaxRecursionDepth = errors.New("maximum recursion depth exceeded")

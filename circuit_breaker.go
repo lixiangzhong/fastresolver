@@ -37,6 +37,11 @@ func (m *MetricsResolver) Lookup(ctx context.Context, name string, qtype uint16)
 	return ret, err
 }
 
+// Unwrap returns the underlying resolver.
+func (m *MetricsResolver) Unwrap() ILookup {
+	return m.resolver
+}
+
 // CircuitBreaker 定义了熔断器准入状态的判断接口。
 type CircuitBreaker interface {
 	Accept() bool

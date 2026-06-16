@@ -51,7 +51,7 @@ func (r *RoundRobinBalancer) Choose(resolvers []ILookup) ILookup {
 	start := int(r.idx.Add(1)-1) % n
 	for i := 0; i < n; i++ {
 		idx = (start + i) % n
-		if cb, ok := resolvers[idx].(CircuitBreaker); ok {
+		if cb := getCircuitBreaker(resolvers[idx]); cb != nil {
 			if cb.Accept() {
 				break
 			}
@@ -76,7 +76,7 @@ func (r *RandomBalancer) Choose(resolvers []ILookup) ILookup {
 	idx := rand.Intn(n) % n
 	for i := 0; i < n; i++ {
 		idx = (idx + i) % n
-		if cb, ok := resolvers[idx].(CircuitBreaker); ok {
+		if cb := getCircuitBreaker(resolvers[idx]); cb != nil {
 			if cb.Accept() {
 				break
 			}

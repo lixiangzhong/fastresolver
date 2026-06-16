@@ -102,6 +102,9 @@ func TestCircuitBreakerRoundRobinBalancer_Choose(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		got := rr.Choose(ss).(*CircuitBreakerResolver).resolver.resolver
 		t.Log(got)
+		if got != s1 && got != s2 {
+			t.Fatalf("expected healthy resolver s1 or s2, but got %v", got)
+		}
 	}
 }
 
@@ -138,5 +141,8 @@ func TestCircuitBreakerRandomBalancer_Choose(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		got := rb.Choose(ss).(*CircuitBreakerResolver).resolver.resolver
 		t.Log(got)
+		if got != s1 && got != s2 {
+			t.Fatalf("expected healthy resolver s1 or s2, but got %v", got)
+		}
 	}
 }
