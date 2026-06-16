@@ -3,6 +3,7 @@ package fastresolver
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -20,6 +21,32 @@ func TestRoundRobinBalancer_Choose(t *testing.T) {
 			t.Fatal(i, got, want)
 		}
 	}
+}
+
+func TestRoundRobinBalancer_ChooseConcurrent(t *testing.T) {
+	const workers = 16
+	const iterations = 100
+
+	resolvers := []ILookup{
+		successResolver("s1"),
+		successResolver("s2"),
+		successResolver("s3"),
+	}
+	balancer := NewRoundRobinBalancer()
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			defer wg.Done()
+			for iteration := 0; iteration < iterations; iteration++ {
+				if got := balancer.Choose(resolvers); got == nil {
+					t.Error("got nil resolver")
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 type successResolver string

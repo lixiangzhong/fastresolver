@@ -3,6 +3,7 @@ package fastresolver
 import (
 	"context"
 	"math/rand"
+	"sync/atomic"
 )
 
 type LoadBalancer interface {
@@ -27,7 +28,7 @@ func (b *LoadBalanceResolver) Lookup(ctx context.Context, name string, qtype uin
 }
 
 type RoundRobinBalancer struct {
-	idx int
+	idx atomic.Uint64
 }
 
 func NewRoundRobinBalancer() *RoundRobinBalancer {
@@ -37,8 +38,9 @@ func NewRoundRobinBalancer() *RoundRobinBalancer {
 func (r *RoundRobinBalancer) Choose(resolvers []ILookup) ILookup {
 	n := len(resolvers)
 	var idx int
+	start := int(r.idx.Add(1)-1) % n
 	for i := 0; i < n; i++ {
-		idx = (r.idx + i) % n
+		idx = (start + i) % n
 		if cb, ok := resolvers[idx].(CircuitBreaker); ok {
 			if cb.Accept() {
 				break
@@ -47,7 +49,6 @@ func (r *RoundRobinBalancer) Choose(resolvers []ILookup) ILookup {
 			break
 		}
 	}
-	r.idx++
 	return resolvers[idx]
 }
 
