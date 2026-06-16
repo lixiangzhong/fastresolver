@@ -22,5 +22,8 @@ func (e TruncatedError) Error() string {
 
 var ErrCircuitBreaker = errors.New("circuit breaker")
 
+// ErrNoResolver indicates that no resolver is available for lookup.
+var ErrNoResolver = errors.New("no resolver")
+
 // ErrCnameDepthExceeded indicates that CNAME following exceeded the safe recursion limit.
 var ErrCnameDepthExceeded = errors.New("cname depth exceeded")

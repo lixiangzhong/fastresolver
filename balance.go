@@ -24,7 +24,14 @@ func NewLoadBalanceResolver(lb LoadBalancer, resolvers ...ILookup) *LoadBalanceR
 
 // Lookup implements ILookup.
 func (b *LoadBalanceResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	return b.lb.Choose(b.resolvers).Lookup(ctx, name, qtype)
+	if len(b.resolvers) == 0 {
+		return DNSRR{}, ErrNoResolver
+	}
+	resolver := b.lb.Choose(b.resolvers)
+	if resolver == nil {
+		return DNSRR{}, ErrNoResolver
+	}
+	return resolver.Lookup(ctx, name, qtype)
 }
 
 type RoundRobinBalancer struct {
@@ -37,6 +44,9 @@ func NewRoundRobinBalancer() *RoundRobinBalancer {
 
 func (r *RoundRobinBalancer) Choose(resolvers []ILookup) ILookup {
 	n := len(resolvers)
+	if n == 0 {
+		return nil
+	}
 	var idx int
 	start := int(r.idx.Add(1)-1) % n
 	for i := 0; i < n; i++ {
@@ -60,6 +70,9 @@ func NewRandomBalancer() *RandomBalancer {
 
 func (r *RandomBalancer) Choose(resolvers []ILookup) ILookup {
 	n := len(resolvers)
+	if n == 0 {
+		return nil
+	}
 	idx := rand.Intn(n) % n
 	for i := 0; i < n; i++ {
 		idx = (idx + i) % n

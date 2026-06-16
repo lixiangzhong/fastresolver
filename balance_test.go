@@ -23,6 +23,28 @@ func TestRoundRobinBalancer_Choose(t *testing.T) {
 	}
 }
 
+func TestLoadBalanceResolver_LookupWithoutResolvers(t *testing.T) {
+	resolver := NewLoadBalanceResolver(NewRoundRobinBalancer())
+
+	_, err := resolver.Lookup(context.Background(), "example.com", 0)
+	if !errors.Is(err, ErrNoResolver) {
+		t.Fatalf("got error %v, want %v", err, ErrNoResolver)
+	}
+}
+
+func TestBalancer_ChooseWithoutResolvers(t *testing.T) {
+	balancers := []LoadBalancer{
+		NewRoundRobinBalancer(),
+		NewRandomBalancer(),
+	}
+
+	for _, balancer := range balancers {
+		if got := balancer.Choose(nil); got != nil {
+			t.Fatalf("got resolver %v, want nil", got)
+		}
+	}
+}
+
 func TestRoundRobinBalancer_ChooseConcurrent(t *testing.T) {
 	const workers = 16
 	const iterations = 100
