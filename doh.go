@@ -65,7 +65,7 @@ func (d *DoH) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, err
 	if err != nil {
 		return DNSRR{}, err
 	}
-	req.Header.Set("User-Agent", "github.com/lixianzheng/fastresolver/v2")
+	req.Header.Set("User-Agent", "github.com/lixiangzhong/fastresolver/v2")
 	req.Header.Set("Accept", "application/dns-message")
 	t := time.Now()
 	resp, err := d.Client.Do(req)

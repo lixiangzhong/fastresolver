@@ -9,7 +9,12 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-var DefalutMemCache = NewLRU(50000, time.Minute)
+// DefaultMemCache 是默认的内存缓存实例（容量 50000，默认 TTL 1 分钟）。
+var DefaultMemCache = NewLRU(50000, time.Minute)
+
+// DefalutMemCache 是由于早期拼写错误保留的别名，现已弃用，请优先使用 DefaultMemCache。
+// Deprecated: 使用 DefaultMemCache 代替。
+var DefalutMemCache = DefaultMemCache
 
 type Cache interface {
 	Set(name string, qtype uint16, answer DNSRR)

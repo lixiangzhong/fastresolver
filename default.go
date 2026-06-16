@@ -68,13 +68,13 @@ func Default() ILookup {
 	return NewCustomResolverFromBase(
 		base,
 		WithFollowCname(),
-		WithCacheResolver(DefalutMemCache),
+		WithCacheResolver(DefaultMemCache),
 		WithRetry(3),
 	)
 }
 
 func cacheNetLookupIP(qname string) (DNSRR, error) {
-	rr, ok := DefalutMemCache.Get(qname, 0) //不区分a还是aaaa
+	rr, ok := DefaultMemCache.Get(qname, 0) //不区分a还是aaaa
 	if ok {
 		return rr, nil
 	}
@@ -82,7 +82,7 @@ func cacheNetLookupIP(qname string) (DNSRR, error) {
 	if err != nil {
 		if strings.Contains(err.Error(), "no such host") {
 			rr.NXDomain = true
-			DefalutMemCache.Set(qname, 0, rr)
+			DefaultMemCache.Set(qname, 0, rr)
 			return rr, nil
 		}
 		return rr, err
@@ -99,6 +99,6 @@ func cacheNetLookupIP(qname string) (DNSRR, error) {
 			rr.A = append(rr.A, ip.String())
 		}
 	}
-	DefalutMemCache.Set(qname, 0, rr)
+	DefaultMemCache.Set(qname, 0, rr)
 	return rr, nil
 }
