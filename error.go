@@ -30,3 +30,7 @@ var ErrCnameDepthExceeded = errors.New("cname depth exceeded")
 
 // ErrMaxRecursionDepth indicates that recursive lookup exceeded the maximum depth.
 var ErrMaxRecursionDepth = errors.New("maximum recursion depth exceeded")
+
+// ErrNoQuestion indicates that the DNS response has an empty question section,
+// which happens when an upstream server returns a malformed or unexpected reply.
+var ErrNoQuestion = errors.New("dns response has no question section")

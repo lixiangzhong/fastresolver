@@ -121,6 +121,10 @@ func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err
 }
 
 func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
+	// 上游返回无 Question 段的畸形响应时，直接访问 [0] 会越界 panic。
+	if len(resp.Question) == 0 {
+		return ErrNoQuestion
+	}
 	qtype := resp.Question[0].Qtype
 	qname := resp.Question[0].Name
 	dnsrr.Authoritative = resp.Authoritative

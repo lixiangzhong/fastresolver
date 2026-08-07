@@ -2,6 +2,7 @@ package fastresolver
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -80,5 +81,17 @@ func TestToDNSRR_MinTTLWithZero(t *testing.T) {
 
 	if rr.TTL != 0 {
 		t.Fatalf("expected TTL to be 0, but got %v", rr.TTL)
+	}
+}
+
+func TestToDNSRR_EmptyQuestion(t *testing.T) {
+	// 上游返回无 Question 段的畸形响应时，toDNSRR 应返回 ErrNoQuestion 而非越界 panic。
+	resp := new(dns.Msg)
+	resp.Rcode = dns.RcodeSuccess
+
+	var dnsrr DNSRR
+	err := toDNSRR(resp, &dnsrr)
+	if !errors.Is(err, ErrNoQuestion) {
+		t.Fatalf("expected ErrNoQuestion, got %v", err)
 	}
 }
