@@ -31,6 +31,7 @@ type DNSRR struct {
 	MX            []MX
 	TXT           []string
 	SRV           []string
+	SOA           *SOA
 }
 
 type AuthNS struct {
@@ -40,6 +41,18 @@ type AuthNS struct {
 type MX struct {
 	Preference uint16
 	Value      string
+}
+
+// SOA contains the fields of a DNS start of authority record.
+type SOA struct {
+	Name    string
+	MName   string
+	RName   string
+	Serial  uint32
+	Refresh uint32
+	Retry   uint32
+	Expire  uint32
+	Minimum uint32
 }
 
 var _ ILookup = (*Resolver)(nil)
@@ -135,7 +148,6 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 		return
 	case dns.RcodeNameError:
 		dnsrr.NXDomain = true
-		return
 	}
 
 	var minTTL uint32 = 0
@@ -153,7 +165,8 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 				Value: rr.Ns,
 			})
 		case *dns.SOA:
-			if qtype == dns.TypeSOA {
+			dnsrr.SOA = newSOA(v.Header().Name, rr)
+			if qtype == dns.TypeSOA || resp.Rcode != dns.RcodeSuccess {
 				continue
 			}
 			dnsrr.NXDomain = strings.HasSuffix(qname, v.Header().Name) && qname != v.Header().Name && len(resp.Answer) == 0
@@ -186,6 +199,8 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 			})
 		case *dns.SRV:
 			dnsrr.SRV = append(dnsrr.SRV, fmt.Sprintf("%v %v %v %v", rr.Priority, rr.Weight, rr.Port, rr.Target))
+		case *dns.SOA:
+			dnsrr.SOA = newSOA(v.Header().Name, rr)
 		}
 	}
 
@@ -194,4 +209,17 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 	}
 
 	return
+}
+
+func newSOA(name string, rr *dns.SOA) *SOA {
+	return &SOA{
+		Name:    name,
+		MName:   rr.Ns,
+		RName:   rr.Mbox,
+		Serial:  rr.Serial,
+		Refresh: rr.Refresh,
+		Retry:   rr.Retry,
+		Expire:  rr.Expire,
+		Minimum: rr.Minttl,
+	}
 }

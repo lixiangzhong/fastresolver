@@ -70,7 +70,6 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 	case dns.RcodeSuccess:
 	case dns.RcodeNameError:
 		ret.NXDomain = true
-		return ret, nil
 	case dns.RcodeRefused:
 		return ret, ServerRefusedError{Qname: name, Server: j.baseURL}
 	}
@@ -101,6 +100,11 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 		case dns.TypeSRV:
 			ret.SRV = append(ret.SRV, a.Data)
 		case dns.TypeSOA:
+			soa, err := parseSOA(a.Name, a.Data)
+			if err != nil {
+				return ret, err
+			}
+			ret.SOA = soa
 		}
 	}
 	for _, v := range r.Authority {
@@ -108,10 +112,20 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 			minTTL = v.TTL
 			minTTLInitialized = true
 		}
-		if strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
+		if r.Status == dns.RcodeSuccess &&
+			strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
 			v.Type == dns.TypeSOA &&
 			len(r.Answer) == 0 && qtype != dns.TypeSOA {
 			ret.NXDomain = true
+		}
+		if v.Type == dns.TypeSOA {
+			soa, err := parseSOA(v.Name, v.Data)
+			if err != nil {
+				return ret, err
+			}
+			if ret.SOA == nil {
+				ret.SOA = soa
+			}
 		}
 	}
 
@@ -181,4 +195,29 @@ func parseMX(data string) MX {
 	return MX{
 		Value: data,
 	}
+}
+
+func parseSOA(name, data string) (*SOA, error) {
+	fields := strings.Fields(data)
+	if len(fields) != 7 {
+		return nil, fmt.Errorf("invalid SOA data %q: expected 7 fields", data)
+	}
+	numeric := make([]uint32, 5)
+	for index, field := range fields[2:] {
+		value, err := strconv.ParseUint(field, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SOA data %q: field %d: %w", data, index+3, err)
+		}
+		numeric[index] = uint32(value)
+	}
+	return &SOA{
+		Name:    name,
+		MName:   fields[0],
+		RName:   fields[1],
+		Serial:  numeric[0],
+		Refresh: numeric[1],
+		Retry:   numeric[2],
+		Expire:  numeric[3],
+		Minimum: numeric[4],
+	}, nil
 }

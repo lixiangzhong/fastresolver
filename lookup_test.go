@@ -95,3 +95,52 @@ func TestToDNSRR_EmptyQuestion(t *testing.T) {
 		t.Fatalf("expected ErrNoQuestion, got %v", err)
 	}
 }
+
+func TestToDNSRR_SOAAnswer(t *testing.T) {
+	resp := new(dns.Msg)
+	resp.SetQuestion("example.com.", dns.TypeSOA)
+	resp.Answer = []dns.RR{&dns.SOA{
+		Hdr:     dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 300},
+		Ns:      "ns1.example.com.",
+		Mbox:    "hostmaster.example.com.",
+		Serial:  2026081301,
+		Refresh: 3600,
+		Retry:   600,
+		Expire:  86400,
+		Minttl:  300,
+	}}
+
+	var dnsrr DNSRR
+	if err := toDNSRR(resp, &dnsrr); err != nil {
+		t.Fatal(err)
+	}
+	if dnsrr.SOA == nil {
+		t.Fatal("expected SOA")
+	}
+	expected := &SOA{
+		Name: "example.com.", MName: "ns1.example.com.", RName: "hostmaster.example.com.",
+		Serial: 2026081301, Refresh: 3600, Retry: 600, Expire: 86400, Minimum: 300,
+	}
+	if *dnsrr.SOA != *expected {
+		t.Fatalf("unexpected SOA: %+v", dnsrr.SOA)
+	}
+}
+
+func TestToDNSRR_SOAAuthorityOnNXDomain(t *testing.T) {
+	resp := new(dns.Msg)
+	resp.SetQuestion("missing.example.com.", dns.TypeA)
+	resp.Rcode = dns.RcodeNameError
+	resp.Ns = []dns.RR{&dns.SOA{
+		Hdr:  dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
+		Ns:   "ns1.example.com.",
+		Mbox: "hostmaster.example.com.",
+	}}
+
+	var dnsrr DNSRR
+	if err := toDNSRR(resp, &dnsrr); err != nil {
+		t.Fatal(err)
+	}
+	if !dnsrr.NXDomain || dnsrr.SOA == nil {
+		t.Fatalf("expected NXDomain with SOA, got %+v", dnsrr)
+	}
+}
