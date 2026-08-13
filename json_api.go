@@ -112,8 +112,8 @@ func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR,
 			minTTL = v.TTL
 			minTTLInitialized = true
 		}
-		if r.Status == dns.RcodeSuccess &&
-			strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
+		if strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
+			dns.CanonicalName(name) != v.Name &&
 			v.Type == dns.TypeSOA &&
 			len(r.Answer) == 0 && qtype != dns.TypeSOA {
 			ret.NXDomain = true

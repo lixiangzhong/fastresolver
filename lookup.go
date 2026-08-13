@@ -166,10 +166,12 @@ func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
 			})
 		case *dns.SOA:
 			dnsrr.SOA = newSOA(v.Header().Name, rr)
-			if qtype == dns.TypeSOA || resp.Rcode != dns.RcodeSuccess {
-				continue
+			if qtype != dns.TypeSOA &&
+				strings.HasSuffix(qname, v.Header().Name) &&
+				qname != v.Header().Name &&
+				len(resp.Answer) == 0 {
+				dnsrr.NXDomain = true
 			}
-			dnsrr.NXDomain = strings.HasSuffix(qname, v.Header().Name) && qname != v.Header().Name && len(resp.Answer) == 0
 		}
 	}
 	for _, v := range resp.Answer {
