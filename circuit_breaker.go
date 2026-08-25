@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 var _ ILookup = (*MetricsResolver)(nil)
@@ -27,14 +29,14 @@ func NewMetricsResolver(resolver ILookup) *MetricsResolver {
 }
 
 // Lookup 实现了 ILookup 接口。执行底层解析并更新成功/失败计数器。
-func (m *MetricsResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	ret, err := m.resolver.Lookup(ctx, name, qtype)
+func (m *MetricsResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	response, err := normalizeLookupResult(m.resolver.Lookup(ctx, name, qtype))
 	if err != nil {
 		m.failure.Add(1)
 	} else {
 		m.success.Add(1)
 	}
-	return ret, err
+	return response, err
 }
 
 // Unwrap returns the underlying resolver.
@@ -122,7 +124,7 @@ func (c *CircuitBreakerResolver) changeState(oldState, newState State) {
 }
 
 // Lookup 实现了 ILookup 接口。其内部实现了熔断器的拦截、状态判断与流转自愈逻辑。
-func (c *CircuitBreakerResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (c *CircuitBreakerResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
 	state := c.getState()
 
 	// 1. 如果处于 Open (熔断) 状态，判断冷却时间是否已到，以尝试切入 HalfOpen (半开) 进行健康探测
@@ -141,17 +143,17 @@ func (c *CircuitBreakerResolver) Lookup(ctx context.Context, name string, qtype 
 			}
 		} else {
 			// 仍在冷却期内，快速失败，直接返回熔断错误
-			return DNSRR{}, ErrCircuitBreaker
+			return nil, ErrCircuitBreaker
 		}
 	}
 
 	// 2. 双重检查：如果现在状态依然是 Open（例如抢占 HalfOpen 失败），则直接拦截返回
 	if state == StateOpen {
-		return DNSRR{}, ErrCircuitBreaker
+		return nil, ErrCircuitBreaker
 	}
 
 	// 3. 执行底层的真实解析请求
-	ret, err := c.resolver.Lookup(ctx, name, qtype)
+	response, err := c.resolver.Lookup(ctx, name, qtype)
 
 	// 4. 根据本次调用的结果，决定状态机的状态流转
 	if err != nil {
@@ -174,7 +176,7 @@ func (c *CircuitBreakerResolver) Lookup(ctx context.Context, name string, qtype 
 		}
 	}
 
-	return ret, err
+	return response, err
 }
 
 // Accept 实现了 CircuitBreaker 接口。由负载均衡器调用，用于判断解析器目前是否可用。

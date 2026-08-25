@@ -1,8 +1,6 @@
 package fastresolver
 
 import (
-	"net"
-	"net/netip"
 	"strings"
 )
 
@@ -73,34 +71,4 @@ func Default() ILookup {
 		WithCacheResolver(DefaultMemCache),
 		WithRetry(3),
 	)
-}
-
-func cacheNetLookupIP(qname string) (DNSRR, error) {
-	rr, ok := DefaultMemCache.Get(qname, 0) //不区分a还是aaaa
-	if ok {
-		return rr, nil
-	}
-	ips, err := net.LookupIP(qname)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such host") {
-			rr.NXDomain = true
-			DefaultMemCache.Set(qname, 0, rr)
-			return rr, nil
-		}
-		return rr, err
-	}
-	for _, v := range ips {
-		ip, ok := netip.AddrFromSlice(v)
-		if !ok {
-			continue
-		}
-		if ip.Is6() {
-			rr.AAAA = append(rr.AAAA, ip.String())
-		}
-		if ip.Is4() {
-			rr.A = append(rr.A, ip.String())
-		}
-	}
-	DefaultMemCache.Set(qname, 0, rr)
-	return rr, nil
 }

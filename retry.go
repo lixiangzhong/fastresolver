@@ -1,6 +1,10 @@
 package fastresolver
 
-import "context"
+import (
+	"context"
+
+	"github.com/miekg/dns"
+)
 
 func NewRetryResolver(try int, r ILookup) ILookup {
 	return &RetryResolver{
@@ -17,17 +21,17 @@ type RetryResolver struct {
 }
 
 // Lookup implements ILookup.
-func (r *RetryResolver) Lookup(ctx context.Context, name string, qtype uint16) (ret DNSRR, err error) {
-	for i := 0; i < r.retry; i++ {
+func (r *RetryResolver) Lookup(ctx context.Context, name string, qtype uint16) (response *dns.Msg, err error) {
+	for attempt := 0; attempt < r.retry; attempt++ {
 		if err = ctx.Err(); err != nil {
-			return DNSRR{}, err
+			return response, err
 		}
-		ret, err = r.resolver.Lookup(ctx, name, qtype)
+		response, err = normalizeLookupResult(r.resolver.Lookup(ctx, name, qtype))
 		if err == nil {
-			return ret, err
+			return response, nil
 		}
 	}
-	return
+	return normalizeLookupResult(response, err)
 }
 
 // Unwrap returns the underlying resolver.

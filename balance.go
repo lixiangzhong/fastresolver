@@ -4,6 +4,8 @@ import (
 	"context"
 	"math/rand"
 	"sync/atomic"
+
+	"github.com/miekg/dns"
 )
 
 type LoadBalancer interface {
@@ -23,15 +25,15 @@ func NewLoadBalanceResolver(lb LoadBalancer, resolvers ...ILookup) *LoadBalanceR
 }
 
 // Lookup implements ILookup.
-func (b *LoadBalanceResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (b *LoadBalanceResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
 	if len(b.resolvers) == 0 {
-		return DNSRR{}, ErrNoResolver
+		return nil, ErrNoResolver
 	}
 	resolver := b.lb.Choose(b.resolvers)
 	if resolver == nil {
-		return DNSRR{}, ErrNoResolver
+		return nil, ErrNoResolver
 	}
-	return resolver.Lookup(ctx, name, qtype)
+	return normalizeLookupResult(resolver.Lookup(ctx, name, qtype))
 }
 
 type RoundRobinBalancer struct {

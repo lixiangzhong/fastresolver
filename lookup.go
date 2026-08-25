@@ -11,48 +11,7 @@ import (
 )
 
 type ILookup interface {
-	Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error)
-}
-
-type DNSRR struct {
-	ServerAddr    string
-	Rcode         int
-	NXDomain      bool
-	Authoritative bool
-	Rtt           time.Duration
-	Network       string
-	TTL           time.Duration
-	A             []string
-	AAAA          []string
-	NS            []string
-	CNAME         []string
-	AuthNS        []AuthNS
-	PTR           []string
-	MX            []MX
-	TXT           []string
-	SRV           []string
-	SOA           *SOA
-}
-
-type AuthNS struct {
-	Name  string
-	Value string
-}
-type MX struct {
-	Preference uint16
-	Value      string
-}
-
-// SOA contains the fields of a DNS start of authority record.
-type SOA struct {
-	Name    string
-	MName   string
-	RName   string
-	Serial  uint32
-	Refresh uint32
-	Retry   uint32
-	Expire  uint32
-	Minimum uint32
+	Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error)
 }
 
 var _ ILookup = (*Resolver)(nil)
@@ -92,136 +51,96 @@ type Resolver struct {
 }
 
 // Lookup implements ILookup.
-func (r *Resolver) Lookup(ctx context.Context, name string, qtype uint16) (resp DNSRR, err error) {
-	resp, err = r.exchange(ctx, new(dns.Msg).SetQuestion(dns.Fqdn(name), qtype))
-	if err != nil {
-		return resp, err
-	}
-	return
+func (resolver *Resolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	request := new(dns.Msg).SetQuestion(dns.Fqdn(name), qtype)
+	return resolver.exchange(ctx, request)
 }
 
-func (r *Resolver) exchange(ctx context.Context, req *dns.Msg) (dnsrr DNSRR, err error) {
-	dnsrr.Network = "udp"
-	conn, err := r.udp.DialContext(ctx, r.server)
+func (resolver *Resolver) exchange(ctx context.Context, request *dns.Msg) (*dns.Msg, error) {
+	udpConn, err := resolver.udp.DialContext(ctx, resolver.server)
 	if err != nil {
-		return
+		return nil, err
 	}
-	defer conn.Close()
-	dnsrr.ServerAddr = conn.RemoteAddr().String()
-	resp, rtt, err := r.udp.ExchangeWithConnContext(ctx, req, conn)
+	defer udpConn.Close()
+
+	response, _, err := resolver.udp.ExchangeWithConnContext(ctx, request, udpConn)
 	if err != nil {
-		return
+		return response, err
 	}
-	if resp.Truncated {
-		tcpconn, err := r.tcp.DialContext(ctx, r.server)
-		if err != nil {
-			return dnsrr, err
+	if !response.Truncated {
+		return validateResponse(request, response, resolver.server)
+	}
+
+	truncatedUDP := response
+	tcpConn, err := resolver.tcp.DialContext(ctx, resolver.server)
+	if err != nil {
+		return truncatedUDP, err
+	}
+	defer tcpConn.Close()
+
+	response, _, err = resolver.tcp.ExchangeWithConnContext(ctx, request, tcpConn)
+	if err != nil {
+		return truncatedUDP, err
+	}
+	if response.Truncated {
+		return response, TruncatedError{
+			Qname:  request.Question[0].Name,
+			Server: resolver.server,
 		}
-		defer tcpconn.Close()
-		resp, rtt, err = r.tcp.ExchangeWithConnContext(ctx, req, tcpconn)
-		if err != nil {
-			return dnsrr, err
-		}
-		dnsrr.Network = "tcp"
-		dnsrr.ServerAddr = tcpconn.RemoteAddr().String()
 	}
-	dnsrr.Rtt = rtt
-	err = toDNSRR(resp, &dnsrr)
-	if err != nil {
-		return
-	}
-	return
+	return validateResponse(request, response, resolver.server)
 }
 
-func toDNSRR(resp *dns.Msg, dnsrr *DNSRR) (err error) {
-	// 上游返回无 Question 段的畸形响应时，直接访问 [0] 会越界 panic。
-	if len(resp.Question) == 0 {
-		return ErrNoQuestion
+// validateResponse enforces protocol-level response invariants for base transports.
+func validateResponse(request, response *dns.Msg, server string) (*dns.Msg, error) {
+	if response == nil {
+		return nil, ErrNoResponse
 	}
-	qtype := resp.Question[0].Qtype
-	qname := resp.Question[0].Name
-	dnsrr.Authoritative = resp.Authoritative
-	dnsrr.Rcode = resp.Rcode
-	switch resp.Rcode {
-	case dns.RcodeRefused:
-		err = ServerRefusedError{Qname: qname, Server: dnsrr.ServerAddr}
-		return
-	case dns.RcodeNameError:
-		dnsrr.NXDomain = true
+	if len(response.Question) == 0 {
+		return response, ErrNoQuestion
 	}
-
-	var minTTL uint32 = 0
-	var minTTLInitialized bool
-
-	for _, v := range resp.Ns {
-		if !minTTLInitialized || v.Header().Ttl < minTTL {
-			minTTL = v.Header().Ttl
-			minTTLInitialized = true
-		}
-		switch rr := v.(type) {
-		case *dns.NS:
-			dnsrr.AuthNS = append(dnsrr.AuthNS, AuthNS{
-				Name:  v.Header().Name,
-				Value: rr.Ns,
-			})
-		case *dns.SOA:
-			dnsrr.SOA = newSOA(v.Header().Name, rr)
-			if qtype != dns.TypeSOA &&
-				strings.HasSuffix(qname, v.Header().Name) &&
-				qname != v.Header().Name &&
-				len(resp.Answer) == 0 {
-				dnsrr.NXDomain = true
-			}
-		}
+	if len(request.Question) != 1 || len(response.Question) != 1 {
+		return response, fmt.Errorf("%w: expected one question, got %d", ErrInvalidQuestion, len(response.Question))
 	}
-	for _, v := range resp.Answer {
-		if !minTTLInitialized || v.Header().Ttl < minTTL {
-			minTTL = v.Header().Ttl
-			minTTLInitialized = true
-		}
-		switch rr := v.(type) {
-		case *dns.A:
-			dnsrr.A = append(dnsrr.A, rr.A.String())
-		case *dns.AAAA:
-			dnsrr.AAAA = append(dnsrr.AAAA, rr.AAAA.String())
-		case *dns.NS:
-			dnsrr.NS = append(dnsrr.NS, rr.Ns)
-		case *dns.CNAME:
-			dnsrr.CNAME = append(dnsrr.CNAME, rr.Target)
-		case *dns.PTR:
-			dnsrr.PTR = append(dnsrr.PTR, rr.Ptr)
-		case *dns.TXT:
-			for _, txt := range rr.Txt {
-				dnsrr.TXT = append(dnsrr.TXT, txt)
-			}
-		case *dns.MX:
-			dnsrr.MX = append(dnsrr.MX, MX{
-				Preference: rr.Preference,
-				Value:      rr.Mx,
-			})
-		case *dns.SRV:
-			dnsrr.SRV = append(dnsrr.SRV, fmt.Sprintf("%v %v %v %v", rr.Priority, rr.Weight, rr.Port, rr.Target))
-		case *dns.SOA:
-			dnsrr.SOA = newSOA(v.Header().Name, rr)
+	requestQuestion := request.Question[0]
+	responseQuestion := response.Question[0]
+	if !strings.EqualFold(requestQuestion.Name, responseQuestion.Name) {
+		return response, fmt.Errorf(
+			"%w: name %q does not match %q",
+			ErrInvalidQuestion,
+			responseQuestion.Name,
+			requestQuestion.Name,
+		)
+	}
+	if requestQuestion.Qtype != responseQuestion.Qtype {
+		return response, fmt.Errorf(
+			"%w: type %s does not match %s",
+			ErrInvalidQuestion,
+			dns.Type(responseQuestion.Qtype),
+			dns.Type(requestQuestion.Qtype),
+		)
+	}
+	if requestQuestion.Qclass != responseQuestion.Qclass {
+		return response, fmt.Errorf(
+			"%w: class %d does not match %d",
+			ErrInvalidQuestion,
+			responseQuestion.Qclass,
+			requestQuestion.Qclass,
+		)
+	}
+	if response.Rcode == dns.RcodeRefused {
+		return response, ServerRefusedError{
+			Qname:  response.Question[0].Name,
+			Server: server,
 		}
 	}
-
-	if minTTLInitialized {
-		dnsrr.TTL = time.Duration(minTTL) * time.Second
-	}
-
-	return
+	return response, nil
 }
 
-func newSOA(name string, rr *dns.SOA) *SOA {
-	return &SOA{
-		Name:    name,
-		MName:   rr.Ns,
-		RName:   rr.Mbox,
-		Serial:  rr.Serial,
-		Refresh: rr.Refresh,
-		Retry:   rr.Retry,
-		Expire:  rr.Expire,
-		Minimum: rr.Minttl,
+// normalizeLookupResult rejects the invalid empty success returned by custom resolvers.
+func normalizeLookupResult(response *dns.Msg, err error) (*dns.Msg, error) {
+	if response == nil && err == nil {
+		return nil, ErrNoResponse
 	}
+	return response, err
 }

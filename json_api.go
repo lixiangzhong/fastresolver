@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -33,107 +32,47 @@ func NewJSONAPI(url string, timeout time.Duration) *JSONAPI {
 
 // NewJSONAPIWithClient creates a JSON API resolver with a custom http.Client.
 func NewJSONAPIWithClient(url string, client *http.Client) *JSONAPI {
-	return &JSONAPI{
-		baseURL: url,
-		http:    client,
-	}
+	return &JSONAPI{baseURL: url, http: client}
 }
 
-func (j *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	ret := DNSRR{
-		ServerAddr: j.baseURL,
-		Network:    "dns json api",
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.baseURL, nil)
+func (client *JSONAPI) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.baseURL, nil)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-	q := req.URL.Query()
-	q.Set("name", name)
-	q.Set("type", dns.TypeToString[qtype])
-	req.URL.RawQuery = q.Encode()
-	resp, err := j.http.Do(req)
+	query := request.URL.Query()
+	query.Set("name", name)
+	query.Set("type", dns.Type(qtype).String())
+	request.URL.RawQuery = query.Encode()
+
+	response, err := client.http.Do(request)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-	defer resp.Body.Close()
+	defer response.Body.Close()
 
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	body, err := io.ReadAll(io.LimitReader(response.Body, 512<<10))
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-	var r JSONAPIResponse
-	if err := json.Unmarshal(b, &r); err != nil {
-		return ret, err
-	}
-	switch r.Status {
-	case dns.RcodeSuccess:
-	case dns.RcodeNameError:
-		ret.NXDomain = true
-	case dns.RcodeRefused:
-		return ret, ServerRefusedError{Qname: name, Server: j.baseURL}
-	}
-	if r.Error != "" {
-		return ret, fmt.Errorf("error: %s", r.Error)
-	}
-	var minTTL uint32 = 0
-	var minTTLInitialized bool
-
-	for _, a := range r.Answer {
-		if !minTTLInitialized || a.TTL < minTTL {
-			minTTL = a.TTL
-			minTTLInitialized = true
-		}
-		switch a.Type {
-		case dns.TypeA:
-			ret.A = append(ret.A, a.Data)
-		case dns.TypeAAAA:
-			ret.AAAA = append(ret.AAAA, a.Data)
-		case dns.TypeNS:
-			ret.NS = append(ret.NS, a.Data)
-		case dns.TypeCNAME:
-			ret.CNAME = append(ret.CNAME, a.Data)
-		case dns.TypeMX:
-			ret.MX = append(ret.MX, parseMX(a.Data))
-		case dns.TypeTXT:
-			ret.TXT = append(ret.TXT, a.Data)
-		case dns.TypeSRV:
-			ret.SRV = append(ret.SRV, a.Data)
-		case dns.TypeSOA:
-			soa, err := parseSOA(a.Name, a.Data)
-			if err != nil {
-				return ret, err
-			}
-			ret.SOA = soa
-		}
-	}
-	for _, v := range r.Authority {
-		if !minTTLInitialized || v.TTL < minTTL {
-			minTTL = v.TTL
-			minTTLInitialized = true
-		}
-		if strings.HasSuffix(dns.CanonicalName(name), v.Name) &&
-			dns.CanonicalName(name) != v.Name &&
-			v.Type == dns.TypeSOA &&
-			len(r.Answer) == 0 && qtype != dns.TypeSOA {
-			ret.NXDomain = true
-		}
-		if v.Type == dns.TypeSOA {
-			soa, err := parseSOA(v.Name, v.Data)
-			if err != nil {
-				return ret, err
-			}
-			if ret.SOA == nil {
-				ret.SOA = soa
-			}
-		}
+	var payload JSONAPIResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
 	}
 
-	if minTTLInitialized {
-		ret.TTL = time.Duration(minTTL) * time.Second
+	message, err := payload.toDNSMsg()
+	if err != nil {
+		return message, err
 	}
-
-	return ret, nil
+	dnsRequest := new(dns.Msg).SetQuestion(dns.Fqdn(name), qtype)
+	message, err = validateResponse(dnsRequest, message, client.baseURL)
+	if err != nil {
+		return message, err
+	}
+	if payload.Error != "" {
+		return message, fmt.Errorf("dns json api: %s", payload.Error)
+	}
+	return message, nil
 }
 
 type JSONAPIResponse struct {
@@ -150,21 +89,62 @@ type JSONAPIResponse struct {
 	Error     string
 }
 
+// toDNSMsg maps only fields represented by the JSON DNS response.
+func (response JSONAPIResponse) toDNSMsg() (*dns.Msg, error) {
+	message := &dns.Msg{MsgHdr: dns.MsgHdr{
+		Response:           true,
+		Truncated:          response.TC,
+		RecursionDesired:   response.RD,
+		RecursionAvailable: response.RA,
+		AuthenticatedData:  response.AD,
+		CheckingDisabled:   response.CD,
+		Rcode:              response.Status,
+	}}
+
+	for _, question := range response.Question {
+		name, err := validatedDNSName(question.Name)
+		if err != nil {
+			return message, err
+		}
+		message.Question = append(message.Question, dns.Question{
+			Name:   name,
+			Qtype:  question.Type,
+			Qclass: dns.ClassINET,
+		})
+	}
+
+	for _, answer := range response.Answer {
+		record, err := answer.toRR()
+		if err != nil {
+			return message, err
+		}
+		message.Answer = append(message.Answer, record)
+	}
+	for _, authority := range response.Authority {
+		record, err := authority.toRR()
+		if err != nil {
+			return message, err
+		}
+		message.Ns = append(message.Ns, record)
+	}
+	return message, nil
+}
+
 var _ json.Unmarshaler = (*JSONAPIQuestions)(nil)
 
 type JSONAPIQuestions []JSONAPIQuestion
 
-func (q *JSONAPIQuestions) UnmarshalJSON(b []byte) error {
-	var v []JSONAPIQuestion
-	if err := json.Unmarshal(b, &v); err == nil {
-		*q = v
+func (questions *JSONAPIQuestions) UnmarshalJSON(data []byte) error {
+	var values []JSONAPIQuestion
+	if err := json.Unmarshal(data, &values); err == nil {
+		*questions = values
 		return nil
 	}
 	var single JSONAPIQuestion
-	if err := json.Unmarshal(b, &single); err != nil {
+	if err := json.Unmarshal(data, &single); err != nil {
 		return err
 	}
-	*q = []JSONAPIQuestion{single}
+	*questions = []JSONAPIQuestion{single}
 	return nil
 }
 
@@ -180,44 +160,40 @@ type JSONAPIAnswer struct {
 	Data string `json:"data"`
 }
 
-func parseMX(data string) MX {
-	fields := strings.Fields(data)
-	if len(fields) >= 2 {
-		var pref uint64
-		if p, err := strconv.ParseUint(fields[0], 10, 16); err == nil {
-			pref = p
-		}
-		return MX{
-			Preference: uint16(pref),
-			Value:      strings.Join(fields[1:], " "),
-		}
+// toRR delegates RDATA parsing to miekg/dns while isolating untrusted owner text.
+func (answer JSONAPIAnswer) toRR() (dns.RR, error) {
+	name, err := validatedDNSName(answer.Name)
+	if err != nil {
+		return nil, err
 	}
-	return MX{
-		Value: data,
+	if strings.ContainsAny(answer.Data, "\r\n") {
+		return nil, fmt.Errorf("invalid DNS record data: contains a newline")
 	}
+
+	recordText := fmt.Sprintf(". %d IN %s %s", answer.TTL, dns.Type(answer.Type).String(), answer.Data)
+	record, err := dns.NewRR(recordText)
+	if err != nil {
+		return nil, fmt.Errorf("parse DNS record %q: %w", answer.Name, err)
+	}
+	if record == nil {
+		return nil, fmt.Errorf("parse DNS record %q: no record", answer.Name)
+	}
+	header := record.Header()
+	if header.Rrtype != answer.Type || header.Class != dns.ClassINET || header.Ttl != answer.TTL {
+		return nil, fmt.Errorf("parse DNS record %q: header mismatch", answer.Name)
+	}
+	header.Name = name
+	return record, nil
 }
 
-func parseSOA(name, data string) (*SOA, error) {
-	fields := strings.Fields(data)
-	if len(fields) != 7 {
-		return nil, fmt.Errorf("invalid SOA data %q: expected 7 fields", data)
+// validatedDNSName rejects multiline input before canonicalizing a DNS owner name.
+func validatedDNSName(name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "\r\n") {
+		return "", fmt.Errorf("invalid DNS name %q", name)
 	}
-	numeric := make([]uint32, 5)
-	for index, field := range fields[2:] {
-		value, err := strconv.ParseUint(field, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid SOA data %q: field %d: %w", data, index+3, err)
-		}
-		numeric[index] = uint32(value)
+	canonical := dns.Fqdn(name)
+	if _, ok := dns.IsDomainName(canonical); !ok {
+		return "", fmt.Errorf("invalid DNS name %q", name)
 	}
-	return &SOA{
-		Name:    name,
-		MName:   fields[0],
-		RName:   fields[1],
-		Serial:  numeric[0],
-		Refresh: numeric[1],
-		Retry:   numeric[2],
-		Expire:  numeric[3],
-		Minimum: numeric[4],
-	}, nil
+	return canonical, nil
 }

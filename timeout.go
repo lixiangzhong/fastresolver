@@ -3,6 +3,8 @@ package fastresolver
 import (
 	"context"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 var _ ILookup = (*TimeoutResolver)(nil)
@@ -23,10 +25,14 @@ func NewTimeoutResolver(resolver ILookup, timeout time.Duration) *TimeoutResolve
 }
 
 // Lookup implements ILookup.
-func (t *TimeoutResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (t *TimeoutResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
 	ctx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
-	return t.resolver.Lookup(ctx, name, qtype)
+	response, err := normalizeLookupResult(t.resolver.Lookup(ctx, name, qtype))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return response, ctxErr
+	}
+	return response, err
 }
 
 // Unwrap returns the underlying resolver.

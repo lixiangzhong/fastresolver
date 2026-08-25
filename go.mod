@@ -1,19 +1,17 @@
-module github.com/lixiangzhong/fastresolver/v2
+module github.com/lixiangzhong/fastresolver/v3
 
 go 1.21.0
 
 require (
 	github.com/hashicorp/golang-lru/v2 v2.0.6
 	github.com/miekg/dns v1.1.63
-	github.com/sourcegraph/conc v0.3.0
 	go.uber.org/ratelimit v0.3.0
+	golang.org/x/sync v0.11.0
 )
 
 require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
-	go.uber.org/atomic v1.7.0 // indirect
-	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
+	github.com/stretchr/testify v1.8.1 // indirect
 )
 
 require (

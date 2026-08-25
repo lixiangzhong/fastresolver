@@ -3,6 +3,7 @@ package fastresolver
 import (
 	"context"
 
+	"github.com/miekg/dns"
 	"go.uber.org/ratelimit"
 )
 
@@ -21,9 +22,9 @@ func NewRateLimitResolver(r ILookup, qps int) *RateLimitResolver {
 }
 
 // Lookup implements ILookup.
-func (r *RateLimitResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (r *RateLimitResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
 	r.Take()
-	return r.resolver.Lookup(ctx, name, qtype)
+	return normalizeLookupResult(r.resolver.Lookup(ctx, name, qtype))
 }
 
 // Unwrap returns the underlying resolver.

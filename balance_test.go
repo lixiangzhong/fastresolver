@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/miekg/dns"
 )
 
 func TestRoundRobinBalancer_Choose(t *testing.T) {
@@ -73,14 +75,14 @@ func TestRoundRobinBalancer_ChooseConcurrent(t *testing.T) {
 
 type successResolver string
 
-func (s successResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	return DNSRR{}, nil
+func (s successResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	return newTestResponse(name, qtype), nil
 }
 
 type failureResolver string
 
-func (f failureResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	return DNSRR{}, errors.New("failureResolver")
+func (f failureResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	return nil, errors.New("failureResolver")
 }
 
 func TestCircuitBreakerRoundRobinBalancer_Choose(t *testing.T) {

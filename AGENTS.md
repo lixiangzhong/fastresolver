@@ -2,7 +2,7 @@
 
 ## 项目结构与模块组织
 
-本仓库是 Go 模块：`github.com/lixiangzhong/fastresolver/v2`。核心代码位于仓库根目录，包名统一为 `fastresolver`。
+本仓库是 Go 模块：`github.com/lixiangzhong/fastresolver/v3`。核心代码位于仓库根目录，包名统一为 `fastresolver`。
 
 - 根目录 `*.go` 文件实现解析器与通用能力，例如 `lookup.go`、`recursive.go`、`doh.go`、`cache.go`、`balance.go`。
 - 测试文件与实现文件同级，命名为 `*_test.go`，例如 `lookup_test.go`、`doh_test.go`。
@@ -22,7 +22,7 @@
 
 ## 编码风格与命名约定
 
-使用 Go 标准格式，提交前运行 `gofmt`。导出类型和函数使用 PascalCase，例如 `Resolver`、`DNSRR`、`NewResolver`；未导出辅助函数使用 camelCase，例如 `toDNSRR`。接口应保持小而聚焦，参考 `ILookup`。
+使用 Go 标准格式，提交前运行 `gofmt`。导出类型和函数使用 PascalCase，例如 `Resolver`、`NewResolver`；未导出辅助函数使用 camelCase，例如 `validateResponse`。接口应保持小而聚焦，参考 `ILookup`。
 
 涉及网络 I/O 的操作优先传递 `context.Context`。避免魔法字符串和重复字面量；重复使用的 DNS 常量、网络名称、超时时间应抽取为常量。
 

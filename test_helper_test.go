@@ -1,6 +1,7 @@
 package fastresolver
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -13,6 +14,60 @@ import (
 )
 
 type handlerFunc func(w dns.ResponseWriter, r *dns.Msg)
+
+type lookupFunc func(ctx context.Context, name string, qtype uint16) (*dns.Msg, error)
+
+func (lookup lookupFunc) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	return lookup(ctx, name, qtype)
+}
+
+type mockDNSServer struct {
+	udp     *dns.Server
+	tcp     *dns.Server
+	address string
+}
+
+func newTestResponse(name string, qtype uint16) *dns.Msg {
+	request := new(dns.Msg).SetQuestion(dns.Fqdn(name), qtype)
+	return new(dns.Msg).SetReply(request)
+}
+
+func firstRR[T dns.RR](records []dns.RR) (T, bool) {
+	for _, record := range records {
+		if typed, ok := record.(T); ok {
+			return typed, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
+func startMockDNSServer(handler handlerFunc) (*mockDNSServer, error) {
+	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	address := tcpListener.Addr().String()
+	udpConn, err := net.ListenPacket("udp", address)
+	if err != nil {
+		_ = tcpListener.Close()
+		return nil, err
+	}
+
+	server := &mockDNSServer{
+		udp:     &dns.Server{PacketConn: udpConn, Handler: dns.HandlerFunc(handler)},
+		tcp:     &dns.Server{Listener: tcpListener, Handler: dns.HandlerFunc(handler)},
+		address: address,
+	}
+	go func() { _ = server.udp.ActivateAndServe() }()
+	go func() { _ = server.tcp.ActivateAndServe() }()
+	return server, nil
+}
+
+func (s *mockDNSServer) Shutdown() {
+	_ = s.udp.Shutdown()
+	_ = s.tcp.Shutdown()
+}
 
 // startMockUDPServer starts a local UDP DNS server on a random free port.
 func startMockUDPServer(t handlerFunc) (*dns.Server, error) {

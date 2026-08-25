@@ -13,11 +13,23 @@ type mockFailingResolver struct {
 	shouldFail bool
 }
 
-func (m *mockFailingResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
+func (m *mockFailingResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
 	if m.shouldFail {
-		return DNSRR{}, errors.New("resolver query failed")
+		return newTestResponse(name, qtype), errors.New("resolver query failed")
 	}
-	return DNSRR{A: []string{"1.1.1.1"}}, nil
+	return newTestResponse(name, qtype), nil
+}
+
+func TestMetricsResolver_ResponseWithErrorCountsFailure(t *testing.T) {
+	response := newTestResponse("example.com", dns.TypeA)
+	resolver := NewMetricsResolver(lookupFunc(func(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+		return response, errors.New("failure")
+	}))
+
+	got, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+	if got != response || err == nil || resolver.failure.Load() != 1 || resolver.success.Load() != 0 {
+		t.Fatalf("got response=%p error=%v success=%d failure=%d", got, err, resolver.success.Load(), resolver.failure.Load())
+	}
 }
 
 func TestCircuitBreaker_StateTransitions(t *testing.T) {

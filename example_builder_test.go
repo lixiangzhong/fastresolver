@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/lixiangzhong/fastresolver/v2"
+	"github.com/lixiangzhong/fastresolver/v3"
 	"github.com/miekg/dns"
 )
 
@@ -76,7 +76,7 @@ func ExampleNewCustomResolver() {
 	// 链的传入顺序就是从外向内的包装和调用执行顺序。
 	resolver, err := fastresolver.NewCustomResolver(
 		servers,
-		fastresolver.WithCacheResolver(cache),                  // 最外层：优先读取/写入缓存，避免不必要的网络往返
+		fastresolver.WithCacheResolver(cache), // 最外层：优先读取/写入缓存，避免不必要的网络往返
 		fastresolver.WithTimeoutResolver(200*time.Millisecond), // 中间层：限制单次查询在 200 毫秒内完成
 		fastresolver.WithRetry(2),                              // 最内层：如果单次查询因超时或网络抖动失败，重试最多 2 次
 	)
@@ -96,7 +96,7 @@ func ExampleNewCustomResolver() {
 		fmt.Printf("第一次解析失败: %v\n", err)
 		return
 	}
-	fmt.Printf("第一次解析成功，IP 列表 = %v\n", res1.A)
+	fmt.Printf("第一次解析成功，IP 列表 = %v\n", answerIPv4Strings(res1))
 
 	// 第二次查询：此时在最外层的 WithCacheResolver 拦截中，能直接命中 LRU 缓存，直接返回而不会再产生网络请求。
 	res2, err := resolver.Lookup(ctx, "example.com", dns.TypeA)
@@ -104,9 +104,19 @@ func ExampleNewCustomResolver() {
 		fmt.Printf("第二次解析失败: %v\n", err)
 		return
 	}
-	fmt.Printf("第二次解析成功，IP 列表 = %v\n", res2.A)
+	fmt.Printf("第二次解析成功，IP 列表 = %v\n", answerIPv4Strings(res2))
 
 	// Output:
 	// 第一次解析成功，IP 列表 = [192.0.2.1]
 	// 第二次解析成功，IP 列表 = [192.0.2.1]
+}
+
+func answerIPv4Strings(response *dns.Msg) []string {
+	addresses := make([]string, 0)
+	for _, record := range response.Answer {
+		if address, ok := record.(*dns.A); ok {
+			addresses = append(addresses, address.A.String())
+		}
+	}
+	return addresses
 }

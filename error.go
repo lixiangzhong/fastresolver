@@ -25,6 +25,9 @@ var ErrCircuitBreaker = errors.New("circuit breaker")
 // ErrNoResolver indicates that no resolver is available for lookup.
 var ErrNoResolver = errors.New("no resolver")
 
+// ErrNoResponse indicates that a resolver returned neither a response nor an error.
+var ErrNoResponse = errors.New("resolver returned no response")
+
 // ErrCnameDepthExceeded indicates that CNAME following exceeded the safe recursion limit.
 var ErrCnameDepthExceeded = errors.New("cname depth exceeded")
 
@@ -34,3 +37,9 @@ var ErrMaxRecursionDepth = errors.New("maximum recursion depth exceeded")
 // ErrNoQuestion indicates that the DNS response has an empty question section,
 // which happens when an upstream server returns a malformed or unexpected reply.
 var ErrNoQuestion = errors.New("dns response has no question section")
+
+// ErrInvalidQuestion indicates that the DNS response question doesn't match the request.
+var ErrInvalidQuestion = errors.New("invalid DNS response question")
+
+// ErrInvalidResponseID indicates that a protocol response used an unexpected message ID.
+var ErrInvalidResponseID = errors.New("invalid DNS response ID")

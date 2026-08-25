@@ -3,7 +3,8 @@ package fastresolver
 import (
 	"context"
 	"errors"
-	"sync"
+
+	"github.com/miekg/dns"
 )
 
 type ConcurrencyResolver struct {
@@ -11,49 +12,48 @@ type ConcurrencyResolver struct {
 }
 
 func NewConcurrencyResolver(resolvers ...ILookup) *ConcurrencyResolver {
-	return &ConcurrencyResolver{
-		resolvers: resolvers,
-	}
+	return &ConcurrencyResolver{resolvers: resolvers}
 }
 
-func (r *ConcurrencyResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	result := make(chan DNSRR, len(r.resolvers))
-	errch := make(chan error, len(r.resolvers))
+type concurrentResult struct {
+	response *dns.Msg
+	err      error
+}
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	wg := &sync.WaitGroup{}
-	wg.Add(len(r.resolvers))
-	for _, r := range r.resolvers {
-		go func(r ILookup) {
-			defer wg.Done()
-			rr, err := r.Lookup(ctx, name, qtype)
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				if err == nil {
-					result <- rr
-				} else {
-					errch <- err
-				}
-			}
-		}(r)
+func (resolver *ConcurrencyResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	go func() {
-		wg.Wait()
-		close(result)
-		close(errch)
-	}()
-	var errs []error
-	for range r.resolvers {
+	if len(resolver.resolvers) == 0 {
+		return nil, ErrNoResolver
+	}
+
+	lookupCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan concurrentResult, len(resolver.resolvers))
+	for _, candidate := range resolver.resolvers {
+		go func(candidate ILookup) {
+			response, err := normalizeLookupResult(candidate.Lookup(lookupCtx, name, qtype))
+			results <- concurrentResult{response: response, err: err}
+		}(candidate)
+	}
+
+	var failures []error
+	var failedResponse *dns.Msg
+	for range resolver.resolvers {
 		select {
-		case err := <-errch:
-			errs = append(errs, err)
-		case rr := <-result:
-			return rr, nil
+		case <-ctx.Done():
+			return failedResponse, ctx.Err()
+		case result := <-results:
+			if result.err == nil {
+				cancel()
+				return result.response, nil
+			}
+			failures = append(failures, result.err)
+			if failedResponse == nil && result.response != nil {
+				failedResponse = result.response
+			}
 		}
 	}
-	return DNSRR{}, errors.Join(errs...)
+	return failedResponse, errors.Join(failures...)
 }

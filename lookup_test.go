@@ -3,144 +3,224 @@ package fastresolver
 import (
 	"context"
 	"errors"
+	"net"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
 )
 
-func TestResolver_Lookup(t *testing.T) {
-	// Start local mock UDP DNS server
-	server, err := startMockUDPServer(func(w dns.ResponseWriter, r *dns.Msg) {
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
-
-		if r.Question[0].Name == "cl.app." && r.Question[0].Qtype == dns.TypeNS {
-			ns := &dns.NS{
-				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 300},
-				Ns:  "ns1.mock.dns.",
-			}
-			m.Answer = append(m.Answer, ns)
-		}
-
-		_ = w.WriteMsg(m)
+func TestResolver_LookupNativeResponse(t *testing.T) {
+	server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+		response := new(dns.Msg).SetReply(request)
+		response.Authoritative = true
+		response.RecursionAvailable = true
+		response.AuthenticatedData = true
+		response.Answer = []dns.RR{&dns.A{
+			Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			A:   net.ParseIP("192.0.2.1"),
+		}}
+		response.Ns = []dns.RR{&dns.NS{
+			Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 600},
+			Ns:  "ns1.example.com.",
+		}}
+		response.Extra = []dns.RR{&dns.A{
+			Hdr: dns.RR_Header{Name: "ns1.example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 600},
+			A:   net.ParseIP("192.0.2.53"),
+		}}
+		_ = writer.WriteMsg(response)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer server.Shutdown()
 
-	r, err := NewResolver(server.PacketConn.LocalAddr().String())
+	resolver, err := NewResolver(server.PacketConn.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rr, err := r.Lookup(context.Background(), "cl.app", dns.TypeNS)
+	response, err := resolver.Lookup(context.Background(), "www.example.com", dns.TypeA)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if len(rr.NS) == 0 || rr.NS[0] != "ns1.mock.dns." {
-		t.Fatalf("expected NS 'ns1.mock.dns.', got %v", rr.NS)
+	if !response.Authoritative || !response.RecursionAvailable || !response.AuthenticatedData {
+		t.Fatalf("response flags were not preserved: %+v", response.MsgHdr)
+	}
+	if len(response.Question) != 1 || len(response.Answer) != 1 || len(response.Ns) != 1 || len(response.Extra) != 1 {
+		t.Fatalf("response sections were not preserved: %+v", response)
+	}
+	if record, ok := firstRR[*dns.A](response.Answer); !ok || record.A.String() != "192.0.2.1" {
+		t.Fatalf("unexpected answer: %v", response.Answer)
 	}
 }
 
-func TestToDNSRR_MinTTLWithZero(t *testing.T) {
-	// 启动一个 Mock DNS 服务，其返回两个 NS 记录，一个 TTL 是 0，另一个 TTL 是 300
-	server, err := startMockUDPServer(func(w dns.ResponseWriter, r *dns.Msg) {
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
+func TestResolver_LookupRcodeContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		rcode     int
+		wantError bool
+	}{
+		{name: "nxdomain", rcode: dns.RcodeNameError},
+		{name: "servfail", rcode: dns.RcodeServerFailure},
+		{name: "refused", rcode: dns.RcodeRefused, wantError: true},
+	}
 
-		if r.Question[0].Name == "example.com." && r.Question[0].Qtype == dns.TypeNS {
-			ns1 := &dns.NS{
-				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 0},
-				Ns:  "ns1.mock.dns.",
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+				response := new(dns.Msg).SetRcode(request, test.rcode)
+				_ = writer.WriteMsg(response)
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
-			ns2 := &dns.NS{
-				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 300},
-				Ns:  "ns2.mock.dns.",
-			}
-			m.Answer = append(m.Answer, ns1, ns2)
-		}
+			defer server.Shutdown()
 
-		_ = w.WriteMsg(m)
+			resolver, err := NewResolver(server.PacketConn.LocalAddr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+			if response == nil || response.Rcode != test.rcode {
+				t.Fatalf("got response %+v, want rcode %d", response, test.rcode)
+			}
+			if test.wantError {
+				var refused ServerRefusedError
+				if !errors.As(err, &refused) {
+					t.Fatalf("got error %v, want ServerRefusedError", err)
+				}
+			} else if err != nil {
+				t.Fatalf("got unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestResolver_LookupNoQuestion(t *testing.T) {
+	server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+		response := new(dns.Msg)
+		response.Id = request.Id
+		response.Response = true
+		_ = writer.WriteMsg(response)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer server.Shutdown()
 
-	r, err := NewResolver(server.PacketConn.LocalAddr().String())
+	resolver, err := NewResolver(server.PacketConn.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rr, err := r.Lookup(context.Background(), "example.com", dns.TypeNS)
+	response, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+	if response == nil || !errors.Is(err, ErrNoQuestion) {
+		t.Fatalf("got response=%v error=%v, want response and ErrNoQuestion", response, err)
+	}
+}
+
+func TestResolver_LookupRejectsMismatchedQuestion(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(response *dns.Msg)
+	}{
+		{
+			name: "multiple questions",
+			mutate: func(response *dns.Msg) {
+				response.Question = append(response.Question, response.Question[0])
+			},
+		},
+		{
+			name: "wrong name",
+			mutate: func(response *dns.Msg) {
+				response.Question[0].Name = "other.example."
+			},
+		},
+		{
+			name: "wrong type",
+			mutate: func(response *dns.Msg) {
+				response.Question[0].Qtype = dns.TypeAAAA
+			},
+		},
+		{
+			name: "wrong class",
+			mutate: func(response *dns.Msg) {
+				response.Question[0].Qclass = dns.ClassCHAOS
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+				response := new(dns.Msg).SetReply(request)
+				test.mutate(response)
+				_ = writer.WriteMsg(response)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Shutdown()
+
+			resolver, err := NewResolver(server.PacketConn.LocalAddr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+			if response == nil || !errors.Is(err, ErrInvalidQuestion) {
+				t.Fatalf("got response=%v error=%v, want response and ErrInvalidQuestion", response, err)
+			}
+		})
+	}
+}
+
+func TestResolver_LookupTruncatedFallsBackToTCP(t *testing.T) {
+	server, err := startMockDNSServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+		response := new(dns.Msg).SetReply(request)
+		if strings.HasPrefix(writer.LocalAddr().Network(), "udp") {
+			response.Truncated = true
+		} else {
+			response.Answer = []dns.RR{&dns.A{
+				Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   net.ParseIP("192.0.2.2"),
+			}}
+		}
+		_ = writer.WriteMsg(response)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer server.Shutdown()
 
-	if rr.TTL != 0 {
-		t.Fatalf("expected TTL to be 0, but got %v", rr.TTL)
-	}
-}
-
-func TestToDNSRR_EmptyQuestion(t *testing.T) {
-	// 上游返回无 Question 段的畸形响应时，toDNSRR 应返回 ErrNoQuestion 而非越界 panic。
-	resp := new(dns.Msg)
-	resp.Rcode = dns.RcodeSuccess
-
-	var dnsrr DNSRR
-	err := toDNSRR(resp, &dnsrr)
-	if !errors.Is(err, ErrNoQuestion) {
-		t.Fatalf("expected ErrNoQuestion, got %v", err)
-	}
-}
-
-func TestToDNSRR_SOAAnswer(t *testing.T) {
-	resp := new(dns.Msg)
-	resp.SetQuestion("example.com.", dns.TypeSOA)
-	resp.Answer = []dns.RR{&dns.SOA{
-		Hdr:     dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 300},
-		Ns:      "ns1.example.com.",
-		Mbox:    "hostmaster.example.com.",
-		Serial:  2026081301,
-		Refresh: 3600,
-		Retry:   600,
-		Expire:  86400,
-		Minttl:  300,
-	}}
-
-	var dnsrr DNSRR
-	if err := toDNSRR(resp, &dnsrr); err != nil {
+	resolver, err := NewResolver(server.address)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if dnsrr.SOA == nil {
-		t.Fatal("expected SOA")
+	response, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+	if err != nil {
+		t.Fatal(err)
 	}
-	expected := &SOA{
-		Name: "example.com.", MName: "ns1.example.com.", RName: "hostmaster.example.com.",
-		Serial: 2026081301, Refresh: 3600, Retry: 600, Expire: 86400, Minimum: 300,
-	}
-	if *dnsrr.SOA != *expected {
-		t.Fatalf("unexpected SOA: %+v", dnsrr.SOA)
+	if response.Truncated || len(response.Answer) != 1 {
+		t.Fatalf("expected complete TCP response, got %+v", response)
 	}
 }
 
-func TestToDNSRR_SOAAuthorityOnNXDomain(t *testing.T) {
-	resp := new(dns.Msg)
-	resp.SetQuestion("missing.example.com.", dns.TypeA)
-	resp.Rcode = dns.RcodeNameError
-	resp.Ns = []dns.RR{&dns.SOA{
-		Hdr:  dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
-		Ns:   "ns1.example.com.",
-		Mbox: "hostmaster.example.com.",
-	}}
-
-	var dnsrr DNSRR
-	if err := toDNSRR(resp, &dnsrr); err != nil {
+func TestResolver_LookupTruncatedTCPFailureReturnsUDPResponse(t *testing.T) {
+	server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+		response := new(dns.Msg).SetReply(request)
+		response.Truncated = true
+		_ = writer.WriteMsg(response)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !dnsrr.NXDomain || dnsrr.SOA == nil {
-		t.Fatalf("expected NXDomain with SOA, got %+v", dnsrr)
+	defer server.Shutdown()
+
+	resolver, err := NewResolver(server.PacketConn.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := resolver.Lookup(context.Background(), "example.com", dns.TypeA)
+	if response == nil || !response.Truncated || err == nil {
+		t.Fatalf("got response=%v error=%v, want truncated UDP response and TCP error", response, err)
 	}
 }

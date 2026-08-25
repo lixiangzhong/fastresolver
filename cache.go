@@ -3,9 +3,11 @@ package fastresolver
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/miekg/dns"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -17,8 +19,8 @@ var DefaultMemCache = NewLRU(50000, time.Minute)
 var DefalutMemCache = DefaultMemCache
 
 type Cache interface {
-	Set(name string, qtype uint16, answer DNSRR)
-	Get(name string, qtype uint16) (DNSRR, bool)
+	Set(name string, qtype uint16, response *dns.Msg)
+	Get(name string, qtype uint16) (*dns.Msg, bool)
 }
 
 type cacheKey struct {
@@ -27,54 +29,213 @@ type cacheKey struct {
 }
 
 type cacheItem struct {
-	value     DNSRR
+	value     *dns.Msg
 	expiredAt time.Time
+}
+
+// CacheOptions controls the built-in LRU cache TTL policy.
+type CacheOptions struct {
+	// DefaultTTL is used for cacheable responses that don't carry a usable TTL.
+	DefaultTTL time.Duration
+
+	// MinTTL raises shorter cache lifetimes.  Zero disables the override.
+	MinTTL time.Duration
+
+	// MaxTTL lowers longer cache lifetimes.  Zero disables the override.
+	MaxTTL time.Duration
 }
 
 var _ Cache = (*memLRU)(nil)
 
 type memLRU struct {
-	cache      *lru.Cache[cacheKey, cacheItem]
-	defaultTTL time.Duration
+	cache   *lru.Cache[cacheKey, cacheItem]
+	options CacheOptions
+	now     func() time.Time
 }
 
 func NewLRU(size int, ttl time.Duration) Cache {
-	store, _ := lru.New[cacheKey, cacheItem](size)
-	return &memLRU{
-		cache:      store,
-		defaultTTL: ttl,
+	cache, err := NewLRUWithOptions(size, CacheOptions{DefaultTTL: ttl})
+	if err != nil {
+		panic(err)
 	}
+	return cache
+}
+
+// NewLRUWithOptions creates an LRU cache with configurable TTL bounds.
+func NewLRUWithOptions(size int, options CacheOptions) (Cache, error) {
+	if options.DefaultTTL < 0 || options.MinTTL < 0 || options.MaxTTL < 0 {
+		return nil, fmt.Errorf("cache TTL values must not be negative")
+	}
+	if options.MaxTTL > 0 && options.MinTTL > options.MaxTTL {
+		return nil, fmt.Errorf("cache minimum TTL %s exceeds maximum TTL %s", options.MinTTL, options.MaxTTL)
+	}
+	store, err := lru.New[cacheKey, cacheItem](size)
+	if err != nil {
+		return nil, err
+	}
+	return &memLRU{cache: store, options: options, now: time.Now}, nil
 }
 
 // Get implements Cache.
-func (m *memLRU) Get(name string, qtype uint16) (DNSRR, bool) {
-	k := cacheKey{name: name, qtype: qtype}
-	item, ok := m.cache.Get(k)
+func (cache *memLRU) Get(name string, qtype uint16) (*dns.Msg, bool) {
+	key := cacheKey{name: name, qtype: qtype}
+	item, ok := cache.cache.Get(key)
 	if !ok {
-		return DNSRR{}, false
+		return nil, false
 	}
-	if time.Now().After(item.expiredAt) {
-		m.cache.Remove(k)
-		return DNSRR{}, false
+	now := cache.now()
+	if !now.Before(item.expiredAt) {
+		cache.cache.Remove(key)
+		return nil, false
 	}
-	return item.value, true
+	response := item.value.Copy()
+	setResponseTTL(response, durationToTTL(item.expiredAt.Sub(now)))
+	return response, true
 }
 
 // Set implements Cache.
-func (m *memLRU) Set(name string, qtype uint16, answer DNSRR) {
-	k := cacheKey{name: name, qtype: qtype}
-	ttl := answer.TTL
-	if ttl == 0 {
-		ttl = m.defaultTTL
+func (cache *memLRU) Set(name string, qtype uint16, response *dns.Msg) {
+	if response == nil {
+		return
 	}
-	// Enforce a minimum TTL of 1 minute.
-	if ttl < time.Minute {
-		ttl = time.Minute
+	ttl, ok := cacheTTL(response, cache.options.DefaultTTL)
+	if !ok {
+		return
 	}
-	m.cache.Add(k, cacheItem{
-		value:     answer,
-		expiredAt: time.Now().Add(ttl),
+	ttl = respectTTLOverrides(ttl, cache.options.MinTTL, cache.options.MaxTTL)
+	if response.Rcode == dns.RcodeServerFailure && ttl > servFailMaxCacheTTL {
+		ttl = servFailMaxCacheTTL
+	}
+	cache.cache.Add(cacheKey{name: name, qtype: qtype}, cacheItem{
+		value:     response.Copy(),
+		expiredAt: cache.now().Add(ttl),
 	})
+}
+
+// servFailMaxCacheTTL follows the RFC 2308 upper bound for transient failures.
+const servFailMaxCacheTTL = 30 * time.Second
+
+// cacheTTL returns the effective lifetime of a cacheable response.
+func cacheTTL(response *dns.Msg, defaultTTL time.Duration) (time.Duration, bool) {
+	if response == nil || response.Truncated || len(response.Question) != 1 {
+		return 0, false
+	}
+
+	switch response.Rcode {
+	case dns.RcodeSuccess:
+		if len(response.Answer) == 0 {
+			if ttl, ok := negativeResponseTTL(response); ok {
+				return ttl, ttl > 0
+			}
+		}
+		qtype := response.Question[0].Qtype
+		if (qtype == dns.TypeA || qtype == dns.TypeAAAA) && !hasAddressAnswer(response, qtype) {
+			return 0, false
+		}
+		ttl := minimumResponseTTL(response)
+		return ttl, ttl > 0
+	case dns.RcodeNameError:
+		ttl, ok := negativeResponseTTL(response)
+		return ttl, ok && ttl > 0
+	case dns.RcodeServerFailure:
+		ttl := minimumResponseTTL(response)
+		if ttl == 0 {
+			ttl = defaultTTL
+		}
+		if ttl > servFailMaxCacheTTL {
+			ttl = servFailMaxCacheTTL
+		}
+		return ttl, ttl > 0
+	default:
+		return 0, false
+	}
+}
+
+// negativeResponseTTL applies RFC 2308 to NXDOMAIN and NODATA responses.
+func negativeResponseTTL(response *dns.Msg) (time.Duration, bool) {
+	var minimum uint32 = math.MaxUint32
+	foundSOA := false
+	for _, record := range response.Ns {
+		switch record := record.(type) {
+		case *dns.NS:
+			return 0, false
+		case *dns.SOA:
+			foundSOA = true
+			ttl := min(record.Hdr.Ttl, record.Minttl)
+			if ttl < minimum {
+				minimum = ttl
+			}
+		}
+	}
+	if !foundSOA || minimum == 0 {
+		return 0, foundSOA
+	}
+	return time.Duration(minimum) * time.Second, true
+}
+
+// minimumResponseTTL returns the lowest non-OPT TTL across all response sections.
+func minimumResponseTTL(response *dns.Msg) time.Duration {
+	minimum := uint32(math.MaxUint32)
+	for _, section := range [][]dns.RR{response.Answer, response.Ns, response.Extra} {
+		for _, record := range section {
+			header := record.Header()
+			if header.Rrtype != dns.TypeOPT && header.Ttl < minimum {
+				minimum = header.Ttl
+			}
+		}
+	}
+	if minimum == math.MaxUint32 || minimum == 0 {
+		return 0
+	}
+	return time.Duration(minimum) * time.Second
+}
+
+// hasAddressAnswer reports whether Answer contains the requested address type.
+func hasAddressAnswer(response *dns.Msg, qtype uint16) bool {
+	for _, record := range response.Answer {
+		switch record.(type) {
+		case *dns.A:
+			if qtype == dns.TypeA {
+				return true
+			}
+		case *dns.AAAA:
+			if qtype == dns.TypeAAAA {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// respectTTLOverrides clamps ttl to the configured bounds.
+func respectTTLOverrides(ttl, minimum, maximum time.Duration) time.Duration {
+	if minimum > 0 && ttl < minimum {
+		ttl = minimum
+	}
+	if maximum > 0 && ttl > maximum {
+		ttl = maximum
+	}
+	return ttl
+}
+
+// durationToTTL rounds a positive duration up to whole DNS TTL seconds.
+func durationToTTL(duration time.Duration) uint32 {
+	seconds := (duration + time.Second - 1) / time.Second
+	if seconds > time.Duration(math.MaxUint32) {
+		return math.MaxUint32
+	}
+	return uint32(seconds)
+}
+
+// setResponseTTL updates all cacheable records while preserving OPT flags.
+func setResponseTTL(response *dns.Msg, ttl uint32) {
+	for _, section := range [][]dns.RR{response.Answer, response.Ns, response.Extra} {
+		for _, record := range section {
+			if header := record.Header(); header.Rrtype != dns.TypeOPT {
+				header.Ttl = ttl
+			}
+		}
+	}
 }
 
 var _ ILookup = (*CacheResolver)(nil)
@@ -86,46 +247,41 @@ type CacheResolver struct {
 }
 
 func NewCacheResolver(cache Cache, resolver ILookup) *CacheResolver {
-	return &CacheResolver{
-		cache:    cache,
-		resolver: resolver,
-	}
+	return &CacheResolver{cache: cache, resolver: resolver}
 }
 
 // Lookup implements ILookup.
-func (c *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (DNSRR, error) {
-	val, ok := c.cache.Get(name, qtype)
-	if ok {
-		return val, nil
+func (resolver *CacheResolver) Lookup(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+	if response, ok := resolver.cache.Get(name, qtype); ok {
+		return normalizeLookupResult(response, nil)
 	}
 
 	key := fmt.Sprintf("%s:%d", name, qtype)
-	ch := c.sfGroup.DoChan(key, func() (interface{}, error) {
-		// 双重检查，以防在等待 singleflight 时另一个并发请求已经写入了缓存。
-		if val, ok := c.cache.Get(name, qtype); ok {
-			return val, nil
+	result := resolver.sfGroup.DoChan(key, func() (interface{}, error) {
+		if response, ok := resolver.cache.Get(name, qtype); ok {
+			return response, nil
 		}
-		ret, err := c.resolver.Lookup(ctx, name, qtype)
+		response, err := normalizeLookupResult(resolver.resolver.Lookup(ctx, name, qtype))
 		if err != nil {
-			return nil, err
+			return response, err
 		}
-		c.cache.Set(name, qtype, ret)
-		return ret, nil
+		resolver.cache.Set(name, qtype, response)
+		return response, nil
 	})
 
 	select {
 	case <-ctx.Done():
-		// 快速响应客户端 Context 超时或取消，避免协程因等待慢上游而积压堆积。
-		return DNSRR{}, ctx.Err()
-	case res := <-ch:
-		if res.Err != nil {
-			return DNSRR{}, res.Err
+		return nil, ctx.Err()
+	case resolved := <-result:
+		response, _ := resolved.Val.(*dns.Msg)
+		if response != nil {
+			response = response.Copy()
 		}
-		return res.Val.(DNSRR), nil
+		return normalizeLookupResult(response, resolved.Err)
 	}
 }
 
 // Unwrap returns the underlying resolver.
-func (c *CacheResolver) Unwrap() ILookup {
-	return c.resolver
+func (resolver *CacheResolver) Unwrap() ILookup {
+	return resolver.resolver
 }
