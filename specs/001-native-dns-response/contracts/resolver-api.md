@@ -34,8 +34,9 @@ The method name, receiver abstraction and three input parameters are unchanged. 
 
 | Condition | Response | Error |
 |-----------|----------|-------|
-| NOERROR, NXDOMAIN, SERVFAIL or other decoded RCODE | decoded message | nil |
+| NOERROR, NXDOMAIN or other decoded non-failure RCODE | decoded message | nil |
 | REFUSED | decoded message | `ServerRefusedError` |
+| SERVFAIL | decoded message | `ServerFailureError` |
 | Decoded response without Question | decoded/partial message | `ErrNoQuestion` |
 | Response Question count/name/type/class mismatch | decoded/partial message | `ErrInvalidQuestion` |
 | DoH response uses a non-zero message ID | decoded message | `ErrInvalidResponseID` |
@@ -69,7 +70,7 @@ Contract requirements:
 
 Custom Cache implementations must adopt these ownership rules to be safely interchangeable with the built-in cache.
 
-The built-in cache follows RFC 2308 negative TTL rules, caps SERVFAIL at 30 seconds, decrements TTL on hits, and exposes configurable minimum/maximum bounds through `CacheOptions` and `NewLRUWithOptions`.
+The built-in cache follows RFC 2308 negative TTL rules, decrements TTL on hits, and exposes configurable minimum/maximum bounds through `CacheOptions` and `NewLRUWithOptions`. `CacheResolver` does not store SERVFAIL because resolver errors bypass cache writes; direct low-level cache insertion still applies the 30-second SERVFAIL bound.
 
 ## Recursive Entry Point
 
@@ -120,7 +121,7 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (*dns.Msg,
 |-----------|-------------------|
 | Retry | Returns first nil-error response or final attempt outcome |
 | Timeout | Preserves underlying response; returns context-detectable timeout/cancel errors |
-| RateLimit | Passes outcome unchanged after acquiring capacity |
+| RateLimit | Waits for capacity with context cancellation, then passes outcome unchanged |
 | Metrics | Counts non-nil error as failure, nil error as success |
 | CircuitBreaker | Uses error for transitions and passes underlying outcome unchanged |
 | LoadBalance | Delegates to selected resolver; no resolver yields `ErrNoResolver` |
@@ -143,3 +144,9 @@ func RecursiveLookup(ctx context.Context, qname string, qtype uint16) (*dns.Msg,
 | fastresolver `MX`, `SOA`, `AuthNS` | `dns.MX`, `dns.SOA`, `dns.NS` |
 
 NOERROR with empty Answer and SOA authority is represented as NODATA, not rewritten to NXDOMAIN. Existing internal recursive termination may retain its legacy SOA heuristic without changing the message.
+
+## Adaptive Pool Contract
+
+`NewAdaptivePoolResolver(resolvers, opts...)` uses defaults when no functional options are supplied. It retries distinct upstreams, increases learned QPS after success, and reduces learned QPS after timeout, transport error, REFUSED, or SERVFAIL. Explicit caller cancellation does not penalize an upstream. `Stats()` returns learned QPS, success/failure counters, and in-flight requests in constructor order.
+
+`Default()` uses this adaptive pool instead of the v2 fixed-rate random pool.

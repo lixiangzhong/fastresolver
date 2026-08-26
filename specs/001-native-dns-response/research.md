@@ -27,11 +27,11 @@
 | nil | non-nil | No usable DNS response exists |
 | nil | nil | Invalid resolver result; normalize to `ErrNoResponse` |
 
-NXDOMAIN, SERVFAIL and other RCODEs retain `(msg, nil)` behavior. REFUSED retains `(msg, ServerRefusedError)` behavior. Decorators continue to classify success/failure by error, not by RCODE.
+NXDOMAIN and non-failure RCODEs use `(msg, nil)`. REFUSED uses `(msg, ServerRefusedError)` and SERVFAIL uses `(msg, ServerFailureError)`. Decorators classify both explicit DNS failure codes through the error path.
 
 **Rationale**: This preserves existing retry, cache, fallback and circuit-breaker behavior while retaining already available responses and preventing unsafe empty successes.
 
-**Alternatives considered**: Treating all non-success RCODEs as errors changes policy; discarding every response on error violates FR-008; allowing `nil, nil` creates nil dereference and false-success risks.
+**Alternatives considered**: Treating every non-success RCODE as an error would incorrectly include NXDOMAIN; discarding responses on error violates FR-008; allowing `nil, nil` creates nil dereference and false-success risks.
 
 ## Decision 4: Preserve UDP-to-TCP fallback and partial responses
 

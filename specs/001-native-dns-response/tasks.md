@@ -44,7 +44,7 @@ description: "Implementation tasks for native DNS response migration"
 
 **Goal**: UDP/TCP、DoH 和 JSON DNS 查询均返回完整 `*dns.Msg`，保留可表达区段、RCODE 和协议标志。
 
-**Independent Test**: 使用本地 UDP、TCP 和 HTTP fixture 返回包含 Answer、Authority、Additional、flags 与多种 RCODE 的消息；验证原生内容完整，NXDOMAIN/SERVFAIL 为响应加 nil error，REFUSED、缺 Question 和截断失败保留响应并返回可判定错误。
+**Independent Test**: 使用本地 UDP、TCP 和 HTTP fixture 返回包含 Answer、Authority、Additional、flags 与多种 RCODE 的消息；验证原生内容完整，NXDOMAIN 为响应加 nil error，REFUSED/SERVFAIL、缺 Question 和截断失败保留响应并返回可判定错误。
 
 ### Tests for User Story 1
 

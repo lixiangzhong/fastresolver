@@ -1,7 +1,7 @@
 // Package fastresolver 提供了一个基于声明式构建器（Builder Pattern）和洋葱模型（Onion Middleware Model）的 DNS 解析装配机制。
 //
 // 通过使用 Decorator（装饰器/中间件）链路，开发者可以按预期的执行顺序，灵活地组装各种不同的解析器行为，
-// 例如：超时控制、失败重试、LRU 缓存拦截、CNAME 自动追踪、失败熔断和限速保护等。
+// 例如：自适应上游调度、超时控制、失败重试、LRU 缓存拦截、CNAME 自动追踪、失败熔断和限速保护等。
 //
 // 在洋葱模型中，最先传入的装饰器在最外层（最先执行），最后传入的在最内层（最后执行，紧邻基础解析器）。
 package fastresolver

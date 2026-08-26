@@ -65,11 +65,11 @@ func TestJSONAPI_LookupRcodeContract(t *testing.T) {
 	tests := []struct {
 		name      string
 		rcode     int
-		wantError bool
+		errorKind string
 	}{
 		{name: "nxdomain", rcode: dns.RcodeNameError},
-		{name: "servfail", rcode: dns.RcodeServerFailure},
-		{name: "refused", rcode: dns.RcodeRefused, wantError: true},
+		{name: "servfail", rcode: dns.RcodeServerFailure, errorKind: "servfail"},
+		{name: "refused", rcode: dns.RcodeRefused, errorKind: "refused"},
 		{name: "nodata", rcode: dns.RcodeSuccess},
 	}
 
@@ -91,13 +91,21 @@ func TestJSONAPI_LookupRcodeContract(t *testing.T) {
 			if response == nil || response.Rcode != test.rcode {
 				t.Fatalf("got response=%v, want rcode %d", response, test.rcode)
 			}
-			if test.wantError {
+			switch test.errorKind {
+			case "refused":
 				var refused ServerRefusedError
 				if !errors.As(err, &refused) {
 					t.Fatalf("got error %v, want ServerRefusedError", err)
 				}
-			} else if err != nil {
-				t.Fatalf("got unexpected error %v", err)
+			case "servfail":
+				var serverFailure ServerFailureError
+				if !errors.As(err, &serverFailure) {
+					t.Fatalf("got error %v, want ServerFailureError", err)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("got unexpected error %v", err)
+				}
 			}
 		})
 	}

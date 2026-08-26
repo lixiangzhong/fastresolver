@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -58,11 +59,11 @@ func TestResolver_LookupRcodeContract(t *testing.T) {
 	tests := []struct {
 		name      string
 		rcode     int
-		wantError bool
+		errorKind string
 	}{
 		{name: "nxdomain", rcode: dns.RcodeNameError},
-		{name: "servfail", rcode: dns.RcodeServerFailure},
-		{name: "refused", rcode: dns.RcodeRefused, wantError: true},
+		{name: "servfail", rcode: dns.RcodeServerFailure, errorKind: "servfail"},
+		{name: "refused", rcode: dns.RcodeRefused, errorKind: "refused"},
 	}
 
 	for _, test := range tests {
@@ -84,15 +85,51 @@ func TestResolver_LookupRcodeContract(t *testing.T) {
 			if response == nil || response.Rcode != test.rcode {
 				t.Fatalf("got response %+v, want rcode %d", response, test.rcode)
 			}
-			if test.wantError {
+			switch test.errorKind {
+			case "refused":
 				var refused ServerRefusedError
 				if !errors.As(err, &refused) {
 					t.Fatalf("got error %v, want ServerRefusedError", err)
 				}
-			} else if err != nil {
-				t.Fatalf("got unexpected error %v", err)
+			case "servfail":
+				var serverFailure ServerFailureError
+				if !errors.As(err, &serverFailure) {
+					t.Fatalf("got error %v, want ServerFailureError", err)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("got unexpected error %v", err)
+				}
 			}
 		})
+	}
+}
+
+func TestRetryResolver_RetriesServerFailure(t *testing.T) {
+	calls := atomic.Int32{}
+	server, err := startMockUDPServer(func(writer dns.ResponseWriter, request *dns.Msg) {
+		response := new(dns.Msg).SetReply(request)
+		if calls.Add(1) == 1 {
+			response.Rcode = dns.RcodeServerFailure
+		}
+		_ = writer.WriteMsg(response)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown()
+	base, err := NewResolver(server.PacketConn.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewRetryResolver(2, base)
+
+	response, err := resolver.Lookup(context.Background(), "retry.example", dns.TypeA)
+	if err != nil || response == nil {
+		t.Fatalf("got response=%v error=%v, want successful retry", response, err)
+	}
+	if gotCalls := calls.Load(); gotCalls != 2 {
+		t.Fatalf("server was called %d times, want 2", gotCalls)
 	}
 }
 

@@ -128,8 +128,14 @@ func validateResponse(request, response *dns.Msg, server string) (*dns.Msg, erro
 			requestQuestion.Qclass,
 		)
 	}
-	if response.Rcode == dns.RcodeRefused {
+	switch response.Rcode {
+	case dns.RcodeRefused:
 		return response, ServerRefusedError{
+			Qname:  response.Question[0].Name,
+			Server: server,
+		}
+	case dns.RcodeServerFailure:
+		return response, ServerFailureError{
 			Qname:  response.Question[0].Name,
 			Server: server,
 		}

@@ -11,6 +11,16 @@ func (e ServerRefusedError) Error() string {
 	return "server " + e.Server + " refused query for " + e.Qname
 }
 
+// ServerFailureError indicates that an upstream returned SERVFAIL.
+type ServerFailureError struct {
+	Qname  string
+	Server string
+}
+
+func (e ServerFailureError) Error() string {
+	return "server " + e.Server + " failed query for " + e.Qname
+}
+
 type TruncatedError struct {
 	Qname  string
 	Server string

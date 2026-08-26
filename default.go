@@ -1,7 +1,10 @@
 package fastresolver
 
 import (
+	"context"
 	"strings"
+
+	"github.com/miekg/dns"
 )
 
 // https://github.com/trickest/resolvers/blob/main/resolvers-trusted.txt
@@ -47,6 +50,7 @@ const famousDNSChina = `
 
 var defaultFamous = append(strings.Fields(famousDNSChina), strings.Fields(famousDNS)...)
 
+// Default builds the shared resolver chain with adaptive upstream discovery.
 func Default() ILookup {
 	famous := defaultFamous
 	var resolvers []ILookup
@@ -56,19 +60,33 @@ func Default() ILookup {
 		if err != nil {
 			continue
 		}
-		r = NewRateLimitResolver(r, 100)
 		r = NewCircuitBreakerResolver(r, 100)
 		resolvers = append(resolvers, r)
 	}
-	base := NewLoadBalanceResolver(NewRandomBalancer(), resolvers...)
+	base, err := NewAdaptivePoolResolver(resolvers)
+	if err != nil {
+		return &errorResolver{err: err}
+	}
 
 	// 使用洋葱模型（中间件装饰器链）进行统一的声明式组装。
 	// 执行流程（自外向内）：
-	// 追踪 CNAME 记录 -> LRU 缓存拦截 -> 失败重试控制 -> 负载均衡基础解析器
+	// 追踪 CNAME 记录 -> LRU 缓存拦截 -> 自适应上游池
 	return NewCustomResolverFromBase(
 		base,
 		WithFollowCname(),
 		WithCacheResolver(DefaultMemCache),
-		WithRetry(3),
 	)
+}
+
+type errorResolver struct {
+	err error
+}
+
+// Lookup returns the construction error captured by Default.
+func (resolver *errorResolver) Lookup(
+	context.Context,
+	string,
+	uint16,
+) (*dns.Msg, error) {
+	return nil, resolver.err
 }

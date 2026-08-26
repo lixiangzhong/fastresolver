@@ -5,13 +5,8 @@ go 1.21.0
 require (
 	github.com/hashicorp/golang-lru/v2 v2.0.6
 	github.com/miekg/dns v1.1.63
-	go.uber.org/ratelimit v0.3.0
 	golang.org/x/sync v0.11.0
-)
-
-require (
-	github.com/benbjohnson/clock v1.3.0 // indirect
-	github.com/stretchr/testify v1.8.1 // indirect
+	golang.org/x/time v0.10.0
 )
 
 require (

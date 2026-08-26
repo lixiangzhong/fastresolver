@@ -45,3 +45,22 @@ func TestDefault(t *testing.T) {
 		t.Fatalf("expected AAAA '2001:4860:4860::8888', got %v", rr.Answer)
 	}
 }
+
+func TestDefault_UsesAdaptivePool(t *testing.T) {
+	oldFamous := defaultFamous
+	defaultFamous = []string{"127.0.0.1:53", "127.0.0.2:53"}
+	t.Cleanup(func() { defaultFamous = oldFamous })
+
+	resolver := Default()
+	for resolver != nil {
+		if _, ok := resolver.(*AdaptivePoolResolver); ok {
+			return
+		}
+		wrapped, ok := resolver.(unwrapper)
+		if !ok {
+			break
+		}
+		resolver = wrapped.Unwrap()
+	}
+	t.Fatal("Default resolver chain does not contain AdaptivePoolResolver")
+}

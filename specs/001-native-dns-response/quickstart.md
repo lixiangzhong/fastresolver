@@ -40,7 +40,7 @@ Expected:
 
 - UDP/TCP and DoH retain Question, Answer, Authority, Additional, RCODE and flags.
 - JSON DNS maps every source field it can express and reports invalid/missing fields.
-- NXDOMAIN/SERVFAIL return a message without Go error; REFUSED returns both message and typed error.
+- NXDOMAIN returns a message without Go error; REFUSED and SERVFAIL return both message and typed error.
 
 ## 3. Validate fallback and error boundaries
 
@@ -94,6 +94,8 @@ go build ./...
 ```
 
 Expected: every command exits successfully without public-network dependency.
+
+Adaptive-specific validation also verifies hidden-capacity discovery, timeout feedback, caller cancellation, Default integration, and fallback behavior.
 
 ## 7. Review migration coverage
 

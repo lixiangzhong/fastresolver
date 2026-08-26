@@ -2,6 +2,7 @@ package fastresolver
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -132,6 +133,28 @@ func TestMemLRU_TTLPolicy(t *testing.T) {
 				t.Fatalf("got expiry %v, want %v", gotTTL, test.wantTTL)
 			}
 		})
+	}
+}
+
+func TestCacheResolver_DoesNotCacheServerFailure(t *testing.T) {
+	calls := atomic.Uint64{}
+	underlying := lookupFunc(func(ctx context.Context, name string, qtype uint16) (*dns.Msg, error) {
+		calls.Add(1)
+		response := newTestResponse(name, qtype)
+		response.Rcode = dns.RcodeServerFailure
+		return response, ServerFailureError{Qname: dns.Fqdn(name), Server: "mock"}
+	})
+	resolver := NewCacheResolver(NewLRU(10, time.Minute), underlying)
+
+	for lookupIndex := 0; lookupIndex < 2; lookupIndex++ {
+		response, err := resolver.Lookup(context.Background(), "servfail.example", dns.TypeA)
+		var serverFailure ServerFailureError
+		if response == nil || !errors.As(err, &serverFailure) {
+			t.Fatalf("lookup %d returned response=%v error=%v", lookupIndex, response, err)
+		}
+	}
+	if gotCalls := calls.Load(); gotCalls != 2 {
+		t.Fatalf("underlying resolver was called %d times, want 2", gotCalls)
 	}
 }
 

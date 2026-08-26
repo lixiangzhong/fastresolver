@@ -31,7 +31,7 @@ This feature adds no persistent data. It replaces one in-memory result model wit
 - `nil` cannot represent a successful response.
 - Missing Question produces `ErrNoQuestion` while preserving the non-nil message.
 - REFUSED preserves the message and produces `ServerRefusedError`.
-- Other RCODE values remain protocol data and do not independently produce a Go error.
+- REFUSED and SERVFAIL produce typed Go errors while retaining the response; other RCODE values remain protocol data.
 - JSON-created RR values must have valid names, no CR/LF injection, IN class, and source-matching type and TTL.
 
 ## Entity: Lookup Outcome
@@ -57,6 +57,7 @@ request
             -> TCP complete -------------------------> success/DNS policy failure
             -> TCP failure --------------------------> partial failure with UDP message
             -> TCP still truncated -----------------> partial failure with TCP message
+       -> SERVFAIL -----------------------------------> DNS policy failure
        -> any other RCODE ----------------------------> success
 ```
 

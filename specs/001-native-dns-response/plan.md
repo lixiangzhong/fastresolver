@@ -93,7 +93,7 @@ AGENTS.md                    # 模块路径说明同步为 /v3
 - 将模块路径升级为 `github.com/lixiangzhong/fastresolver/v3`，同步仓库内受版本控制的自引用和 User-Agent。
 - 将 `ILookup.Lookup` 改为 `(*dns.Msg, error)`，增加 `ErrNoResponse` 表示自定义 resolver 返回非法 `nil, nil`。
 - 基础 resolver 在 UDP 成功时返回原消息；TC 响应自动回退 TCP。TCP 失败时返回截断 UDP 消息和错误，TCP 仍截断时返回 TCP 消息和 `TruncatedError`。
-- 对已解码但缺少 Question 的消息返回该消息和 `ErrNoQuestion`；REFUSED 返回该消息和 `ServerRefusedError`；其他 RCODE 保持响应加 nil error。
+- 对已解码但缺少 Question 的消息返回该消息和 `ErrNoQuestion`；REFUSED/SERVFAIL 分别返回 typed error；其他 RCODE 保持响应加 nil error。
 - 删除 `DNSRR` 及其子类型、`toDNSRR`、`newSOA`，不提供别名或兼容入口。
 
 ### 2. Migrate transports and transparent decorators

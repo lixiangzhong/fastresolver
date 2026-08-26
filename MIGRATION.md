@@ -58,8 +58,9 @@ for _, record := range response.Answer {
 
 - A nil error always has a non-nil response.
 - A non-nil response may accompany an error when DNS data was obtained before validation, fallback, or policy failure.
-- NXDOMAIN, SERVFAIL, and other decoded RCODE values return the message with a nil Go error.
+- NXDOMAIN and decoded RCODE values other than REFUSED/SERVFAIL return the message with a nil Go error.
 - REFUSED returns the message with `ServerRefusedError`.
+- SERVFAIL returns the message with `ServerFailureError`, so retry, circuit-breaker, fallback, and adaptive feedback all treat it as failure.
 - Missing Question returns the partial message with `ErrNoQuestion`.
 - A custom resolver returning `nil, nil` is normalized to `ErrNoResponse` by resolver layers that consume it.
 - A failed TCP fallback returns the truncated UDP message with the TCP error.
@@ -91,9 +92,23 @@ Custom caches must isolate mutable messages. The built-in LRU deep-copies on Set
 The built-in cache now also:
 
 - follows RFC 2308 for NXDOMAIN and NODATA using `min(SOA TTL, SOA.MINIMUM)`;
-- caps SERVFAIL caching at 30 seconds;
+- does not cache SERVFAIL through `CacheResolver` because it is a resolver error;
 - refuses truncated, malformed, zero-TTL, and non-cacheable responses;
 - returns remaining TTL values on cache hits instead of the original values;
 - supports optional TTL bounds through `NewLRUWithOptions` and `CacheOptions`.
 
 `NewLRU(size, ttl)` remains available. Its `ttl` argument is the fallback TTL for cacheable responses without a usable record TTL; it no longer imposes an unconditional one-minute minimum.
+
+## Default and Adaptive Upstreams
+
+Version 2 used a fixed 100 QPS limiter on every bundled upstream followed by random selection. Version 3 `Default()` uses `AdaptivePoolResolver` instead, while retaining per-upstream circuit breakers and the outer cache/CNAME layers.
+
+The adaptive pool needs no explicit options:
+
+```go
+pool, err := fastresolver.NewAdaptivePoolResolver(upstreams)
+```
+
+Deployments can override individual defaults with `WithAdaptiveInitialQPS`, `WithAdaptiveMinQPS`, `WithAdaptiveMaxQPS`, `WithAdaptiveIncreasePerSecond`, `WithAdaptiveDecreaseFactor`, `WithAdaptiveFailureCooldown`, and `WithAdaptiveMaxAttempts`.
+
+Timeouts, transport errors, REFUSED, and SERVFAIL reduce learned capacity. Explicit caller cancellation releases the request without penalizing the upstream. Fixed `RateLimitResolver` remains available and now stops waiting when its context is canceled or expires.
