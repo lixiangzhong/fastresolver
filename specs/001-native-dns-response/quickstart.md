@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.21 or later within the module's declared compatibility range
+- Go 1.25 or later within the module's declared compatibility range
 - Checkout of branch `refactor/native-dns-response`
 - No external DNS or database service; all protocol tests use local fixtures
 

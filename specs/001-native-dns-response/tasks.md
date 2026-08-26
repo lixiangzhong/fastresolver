@@ -23,7 +23,7 @@ description: "Implementation tasks for native DNS response migration"
 
 **Purpose**: 建立破坏性主版本的模块身份。
 
-- [X] T001 将模块路径从 `/v2` 更新为 `/v3`，保持 Go 1.21 和现有依赖版本不变，修改 `go.mod`
+- [X] T001 将模块路径从 `/v2` 更新为 `/v3`，最低 Go 版本提升至 1.25，保持现有依赖版本不变，修改 `go.mod`
 
 ---
 

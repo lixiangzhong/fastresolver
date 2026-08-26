@@ -10,15 +10,15 @@
 
 ## Technical Context
 
-**Language/Version**: Go 1.21.0
+**Language/Version**: Go 1.25.0
 
-**Primary Dependencies**: `github.com/miekg/dns` v1.1.63；沿用现有 `golang-lru/v2`、`singleflight`、`zonedb`、`publicsuffix`、`ratelimit` 与 `conc`
+**Primary Dependencies**: `github.com/miekg/dns` v1.1.73、`github.com/zonedb/zonedb` v1.0.5780；沿用现有 `golang-lru/v2`、`singleflight`、`publicsuffix` 与 `x/time/rate`
 
 **Storage**: 进程内 LRU DNS 响应缓存，无持久化存储
 
 **Testing**: Go 标准库 `testing`，本地 UDP DNS 与 `httptest` HTTP/DoH fixture；`go test`、`go test -race`、`go vet`、`go build`
 
-**Target Platform**: 支持 Go 1.21 的跨平台网络库；UDP、TCP、HTTP/HTTPS
+**Target Platform**: 支持 Go 1.25 的跨平台网络库；UDP、TCP、HTTP/HTTPS
 
 **Project Type**: 单模块 Go library，根目录为 `fastresolver` 包
 
@@ -32,7 +32,7 @@
 
 *GATE: Phase 0 前检查，并在 Phase 1 后复核。*
 
-`.specify/memory/constitution.md` 仍是未填写模板，没有已批准的项目宪章条款。以下门禁来自仓库 `AGENTS.md`、功能规格和 Go 1.21 约束：
+`.specify/memory/constitution.md` 仍是未填写模板，没有已批准的项目宪章条款。以下门禁来自仓库 `AGENTS.md`、功能规格和 Go 1.25 约束：
 
 - **最小职责变更**: 只迁移响应模型及其直接依赖；不顺带重写 DNS 策略。PASS。
 - **单一事实来源**: 删除 `DNSRR`、`AuthNS`、`MX`、`SOA` 和 `toDNSRR`，不保留隐藏兼容层。PASS。
@@ -40,7 +40,7 @@
 - **边界安全**: JSON DNS 外部文本经库解析器处理，拒绝 CR/LF，并验证生成 RR 的类型、类和 TTL。PASS。
 - **错误可判定**: 保留 sentinel/typed error 与 `errors.Is` 语义，禁止 `nil, nil` 成功。PASS。
 - **确定性验证**: 网络协议行为由本地 fixture 覆盖；不依赖公共 DNS。PASS。
-- **版本约束**: 实现仅使用 Go 1.21 与现有依赖提供的能力。PASS。
+- **版本约束**: 实现仅使用 Go 1.25 与现有依赖提供的能力。PASS。
 
 **Post-design re-check**: Phase 1 的数据模型、接口契约和 quickstart 未引入第二响应模型、额外服务或新策略；所有门禁继续 PASS，无需复杂度豁免。
 

@@ -10,7 +10,7 @@ CNAME-following, and adaptive upstream behavior behind the `ILookup` interface.
 go get github.com/lixiangzhong/fastresolver/v3
 ```
 
-The module supports Go 1.21 and later.
+The module supports Go 1.25 and later.
 
 ## Basic Lookup
 

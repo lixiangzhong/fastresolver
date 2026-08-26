@@ -2,7 +2,7 @@
 
 ## Decision 1: Use `*dns.Msg` as the only lookup response
 
-**Decision**: Keep `github.com/miekg/dns` v1.1.63 and change the common lookup contract to `Lookup(context.Context, string, uint16) (*dns.Msg, error)`. Remove the custom `DNSRR` family and conversion functions.
+**Decision**: Use `github.com/miekg/dns` v1.1.73 and change the common lookup contract to `Lookup(context.Context, string, uint16) (*dns.Msg, error)`. Use `github.com/zonedb/zonedb` v1.0.5780 for recursive zone data. Remove the custom `DNSRR` family and conversion functions.
 
 **Rationale**: The dependency already returns `*dns.Msg` for wire queries. Direct exposure preserves Question, Answer, Authority, Additional, RCODE, flags, EDNS and future RR types without maintaining a lossy parallel model.
 
